@@ -1,0 +1,9 @@
+# Team lint baseline from team-skills templates/lint. adopt_lint.py merges these
+# tables into Cargo.toml as [lints.*], or [workspace.lints.*] in a workspace.
+# The check runs `cargo clippy --all-targets -- -D warnings`, so a warning fails.
+[rust]
+unsafe_code = "forbid"
+
+[clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

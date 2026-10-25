@@ -1,0 +1,12 @@
+{
+  // Merge these options into an Angular workspace after the TypeScript strict options.
+  "angularCompilerOptions": {
+    "extendedDiagnostics": {
+      "defaultCategory": "error" // Make Angular's additional correctness diagnostics fail the build.
+    },
+    "strictInjectionParameters": true, // Reject dependency-injection parameters Angular cannot resolve.
+    "strictInputAccessModifiers": true, // Honor private, protected, and readonly input modifiers.
+    "strictTemplates": true, // Fully type-check bindings, events, references, and embedded views.
+    "typeCheckHostBindings": true // Type-check host property and event expressions.
+  }
+}

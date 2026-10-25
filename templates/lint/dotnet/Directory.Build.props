@@ -1,0 +1,14 @@
+<!-- Team lint baseline from team-skills templates/lint. adopt_lint.py copies it. -->
+<Project>
+  <PropertyGroup>
+    <!-- Run the recommended analyzers and the code-style rules in every build. -->
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- IDE0005 (unnecessary using) reports in builds only with documentation files on. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- A warning fails the build, so new code stays clean. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- A newly published package advisory should not break every build. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,43 @@
+# Which skills carry a copy of each shared file. Edit the source, then run
+# `uv run scripts/sync_shared.py`. validate.py fails when a copy has drifted.
+# `from` is relative to the repository root; `to` is relative to each skill.
+
+[[copy]]
+from = "shared/scripts/post.py"
+to = "scripts/post.py"
+skills = ["dev-context", "dev-start", "dev-finish", "dev-review", "dev-feedback"]
+
+[[copy]]
+from = "shared/scripts/ticket.py"
+to = "scripts/ticket.py"
+skills = ["dev-start", "dev-finish", "dev-review"]
+
+[[copy]]
+from = "shared/scripts/ctx.py"
+to = "scripts/ctx.py"
+skills = ["dev-context"]
+
+[[copy]]
+from = "shared/references/criteria.md"
+to = "references/criteria.md"
+skills = ["dev-start", "dev-finish", "dev-review"]
+
+[[copy]]
+from = "shared/references/style.md"
+to = "references/style.md"
+skills = ["dev-context", "dev-start", "dev-finish", "dev-review", "dev-feedback"]
+
+[[copy]]
+from = "shared/references/review-checklist.md"
+to = "references/review-checklist.md"
+skills = ["dev-finish", "dev-review"]
+
+[[copy]]
+from = "templates/AGENTS.template.md"
+to = "assets/AGENTS.template.md"
+skills = ["dev-context"]
+
+[[copy]]
+from = "templates/app-context.template.md"
+to = "assets/app-context.template.md"
+skills = ["dev-context"]

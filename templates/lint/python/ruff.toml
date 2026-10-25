@@ -1,0 +1,68 @@
+# Team lint baseline from team-skills templates/lint. adopt_lint.py copies it.
+line-length = 200
+force-exclude = true
+show-fixes = true
+unsafe-fixes = false
+
+[lint]
+extend-select = [  # Ruff's own defaults stay on; these are additions to them.
+    "E4",  # Keep imports valid and at the top level.
+    "E7",  # Reject ambiguous statements and comparisons.
+    "F",  # Reject star imports and invalid forward-reference annotations.
+    "I",  # Keep imports ordered and grouped consistently.
+    "UP",  # Use syntax appropriate for the target Python version.
+    "B",  # Catch likely bugs and hazardous design patterns.
+    "SIM",  # Replace needlessly complex control flow.
+    "C4",  # Remove wasteful collection constructions.
+    "RUF",  # Apply additional correctness and modernization checks.
+    "PTH",  # Use pathlib instead of legacy os.path calls.
+    "N",  # Enforce standard naming conventions.
+    "A",  # Prevent names from shadowing builtins.
+    "SLF",  # Reject access to another object's private members.
+    "T20",  # Reject print and pprint in favor of logging.
+    "INP",  # Require explicit packages instead of implicit namespaces.
+    "TID",  # Reject parent-relative imports.
+    "ERA",  # Remove commented-out code.
+    "EM",  # Bind exception messages before raising them.
+    "ANN001",  # Require annotations for named function arguments.
+    "ANN002",  # Require annotations for *args.
+    "ANN003",  # Require annotations for **kwargs.
+    "ANN201",  # Require return annotations on public functions.
+    "ANN202",  # Require return annotations on private functions.
+    "ANN204",  # Require return annotations on special methods.
+    "ANN205",  # Require return annotations on static methods.
+    "ANN206",  # Require return annotations on class methods.
+    "LOG",  # Enforce safe logger and exception usage.
+    "G",  # Require lazy, valid log formatting.
+    "ARG",  # Expose unused parameters.
+    "PGH",  # Reject blanket `noqa` and `type: ignore` comments.
+    "RSE",  # Remove unnecessary syntax when raising exceptions.
+    "RET502",  # Reject implicit None returns in functions that return values.
+    "RET503",  # Require an explicit final return in value-returning functions.
+    "PLW",  # Catch suspicious control flow and API usage.
+    "C90",  # Limit cyclomatic complexity.
+    "PERF",  # Flag avoidable allocations and slow loop patterns.
+    "ASYNC",  # Catch blocking calls and async misuse.
+    "FAST",  # Validate route declarations and dependency annotations.
+    "PD",  # Enforce safer and more efficient dataframe idioms.
+]
+ignore = [
+    "ASYNC109",  # Allow deliberate timeout parameters in async APIs.
+    "S",  # Do not run flake8-bandit; its findings are noise outside audited code.
+]
+
+[lint.per-file-ignores]
+# Tests may reach into private members and sit outside a package.
+"**/tests/**" = ["SLF001", "INP001"]
+"**/test_*.py" = ["SLF001", "INP001"]
+"**/conftest.py" = ["SLF001", "INP001"]
+
+[lint.isort]
+split-on-trailing-comma = false  # Do not preserve comma-forced import line breaks.
+
+[lint.mccabe]
+max-complexity = 15
+
+[format]
+docstring-code-format = true
+skip-magic-trailing-comma = true  # Collapse comma-forced multiline constructs when they fit.

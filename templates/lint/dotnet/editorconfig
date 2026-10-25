@@ -1,0 +1,16 @@
+# Team lint baseline from team-skills templates/lint. adopt_lint.py appends it to
+# the repository's .editorconfig.
+[*.cs]
+# Analyzer categories that catch real defects report as warnings.
+dotnet_analyzer_diagnostic.category-Reliability.severity = warning
+dotnet_analyzer_diagnostic.category-Security.severity = warning
+dotnet_analyzer_diagnostic.category-Usage.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.severity = warning
+# Code-style rules that point at real problems.
+dotnet_diagnostic.IDE0005.severity = warning  # Unnecessary using directive.
+dotnet_diagnostic.IDE0059.severity = warning  # Value assigned and never read.
+dotnet_diagnostic.IDE0060.severity = warning  # Unused parameter.
+csharp_prefer_braces = true:warning
+dotnet_diagnostic.IDE0011.severity = warning  # Braces around every block.
+# Documentation files are on only so IDE0005 works; missing XML docs are fine.
+dotnet_diagnostic.CS1591.severity = none
