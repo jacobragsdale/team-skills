@@ -12,7 +12,8 @@ operational facts for each environment, which only /dev-verify, /dev-support,
 and this skill read. Run it once per repository, and again whenever the facts
 drift.
 
-Paths below are relative to this skill's folder. Run its scripts with
+`<skill>` stands for this skill's folder, `~/.agents/skills/dev-context` once
+installed, and other paths are relative to it. Run its scripts with
 `uv run`, or with `python3` when that is 3.11 or later.
 
 ## Writes this skill makes without asking
@@ -90,8 +91,8 @@ or delete its line:
 Then check the block, and print each environment to read it back:
 
 ```sh
-uv run scripts/ctx.py --check
-uv run scripts/ctx.py --env <name>
+uv run <skill>/scripts/ctx.py --check
+uv run <skill>/scripts/ctx.py --env <name>
 ```
 
 Done when `ctx.py --check` passes and every environment prints as intended.
@@ -108,7 +109,7 @@ work item, so ask the developer which one. On a yes, commit on a new branch,
 push it, and open the pull request in the shape `references/style.md` gives:
 
 ```sh
-uv run scripts/post.py --skill dev-context pr-create --repo <repo> --source <branch> --title "Agent context for <repo>" --workitem <id> --file - <<'EOF'
+uv run <skill>/scripts/post.py --skill dev-context pr-create --repo <repo> --source <branch> --title "Agent context for <repo>" --workitem <id> --file - <<'EOF'
 <description>
 EOF
 ```

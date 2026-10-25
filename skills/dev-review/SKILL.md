@@ -10,7 +10,8 @@ disable-model-invocation: true
 Review someone else's pull request so that a person can finish the review in
 minutes. The skill reads and drafts. The person decides, comments, and votes.
 
-Paths below are relative to this skill's folder. Run its scripts with
+`<skill>` stands for this skill's folder, `~/.agents/skills/dev-review` once
+installed, and other paths are relative to it. Run its scripts with
 `uv run`, or with `python3` when that is 3.11 or later.
 
 ## Writes this skill makes without asking
@@ -25,7 +26,7 @@ Read the `AGENTS.md` of the pull request's repository: this one when its
 remote is that repository, or else `~/dev/<repo>/AGENTS.md`. Then gather:
 
 ```sh
-uv run scripts/ticket.py --pr <id>
+uv run <skill>/scripts/ticket.py --pr <id>
 agent-cli ado pr get <id> --fields policies,reviewers,open_threads
 agent-cli ado thread list <id> --fields id,at,author,text,replies
 ```
@@ -85,7 +86,7 @@ Show the person, in this order:
 Then ask which drafts to post. Post only those, one call each:
 
 ```sh
-uv run scripts/post.py --skill dev-review pr-comment <id> --at '<at>' --file - <<'EOF'
+uv run <skill>/scripts/post.py --skill dev-review pr-comment <id> --at '<at>' --file - <<'EOF'
 <draft>
 EOF
 ```

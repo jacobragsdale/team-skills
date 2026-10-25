@@ -11,7 +11,8 @@ Finish the current branch: prove it meets the criteria, review it cold, open
 the pull request, and give QA its steps. A human reviewer should only have to
 judge the change, not find its basic problems.
 
-Paths below are relative to this skill's folder. Run its scripts with
+`<skill>` stands for this skill's folder, `~/.agents/skills/dev-finish` once
+installed, and other paths are relative to it. Run its scripts with
 `uv run`, or with `python3` when that is 3.11 or later. Every ADO write goes
 through `scripts/post.py --skill dev-finish`, which adds the footer and
 enforces the length caps. Write what it posts in the shape
@@ -36,7 +37,7 @@ approves, and merges, so never turn on auto-complete.
 
 Read the repository's `AGENTS.md`. The dev task is the argument, or else the
 number at the start of the branch name. If neither gives one, ask. Run
-`scripts/ticket.py <task>` for the PBI's criteria and the QA task.
+`uv run <skill>/scripts/ticket.py <task>` for the PBI's criteria and the QA task.
 
 If the PBI has no criteria, stop and offer to draft them with the developer,
 in the format `references/criteria.md` gives, before going on.
@@ -96,7 +97,7 @@ then push the branch. Write the description in the shape
 `references/style.md` gives, and open the pull request:
 
 ```sh
-uv run scripts/post.py --skill dev-finish pr-create --repo <repo> --source <branch> --title "<what it does>" --workitem <task> --file - <<'EOF'
+uv run <skill>/scripts/post.py --skill dev-finish pr-create --repo <repo> --source <branch> --title "<what it does>" --workitem <task> --file - <<'EOF'
 <description>
 EOF
 ```
@@ -117,7 +118,7 @@ of `AGENTS.md`: one block per criterion, in the shape `references/style.md`
 gives.
 
 ```sh
-uv run scripts/post.py --skill dev-finish describe <qa task> --file - <<'EOF'
+uv run <skill>/scripts/post.py --skill dev-finish describe <qa task> --file - <<'EOF'
 <steps>
 EOF
 ```
@@ -133,7 +134,7 @@ Done when the QA task's description covers every criterion.
 Comment on the dev task, in two sentences at most:
 
 ```sh
-uv run scripts/post.py --skill dev-finish comment <task> "!<pr> is open for review. QA steps are on #<qa task>."
+uv run <skill>/scripts/post.py --skill dev-finish comment <task> "!<pr> is open for review. QA steps are on #<qa task>."
 ```
 
 Then tell the developer the pull request's link, the gates it passed, and

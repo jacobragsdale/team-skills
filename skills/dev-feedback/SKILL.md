@@ -13,7 +13,8 @@ questions it could have answered"). Both count. Draft the fix now, while this
 session still holds the context, and open a pull request to the team-skills
 repository. The maintainer reviews and merges every one.
 
-Paths below are relative to this skill's folder. Run its scripts with
+`<skill>` stands for this skill's folder, `~/.agents/skills/dev-feedback` once
+installed, and other paths are relative to it. Run its scripts with
 `uv run`, or with `python3` when that is 3.11 or later.
 
 ## Writes this skill makes without asking
@@ -28,7 +29,7 @@ clone's main checkout, so leave that checkout as it is.
 ## 1. Pin down what went wrong
 
 From this session and the person's words, settle four things: which skill
-(`/dev-...`), what was asked, what the skill did, and what should have
+misbehaved (the target, such as `dev-finish`), what was asked, what the skill did, and what should have
 happened. If the person gave no reason, ask one question.
 
 When the cause is outside the skills, say where it belongs and stop. A fact
@@ -46,7 +47,7 @@ This skill's folder is a link into the team-skills clone. Resolve it with
 
 ```sh
 git -C <clone> fetch origin
-git -C <clone> worktree add <clone>-feedback-<slug> -b feedback/<skill>-<slug> origin/HEAD
+git -C <clone> worktree add <clone>-feedback-<slug> -b feedback/<target>-<slug> origin/HEAD
 ```
 
 Read the worktree's `AGENTS.md` and `DESIGN.md` before changing anything.
@@ -73,7 +74,7 @@ failure.
 
 ## 4. Record a fixture
 
-Write `<worktree>/fixtures/<skill>/<YYYY-MM-DD>-<slug>.md`. The format is
+Write `<worktree>/fixtures/<target>/<YYYY-MM-DD>-<slug>.md`. The format is
 loose. A few lines are enough:
 
 ```markdown
@@ -99,7 +100,7 @@ branch. Write the description in the shape `references/style.md` gives, and
 open the pull request:
 
 ```sh
-uv run scripts/post.py --skill dev-feedback pr-create --repo <team-skills repo> --source <branch> --title "<skill>: <the fix>" --workitem <id> --file - <<'EOF'
+uv run <skill>/scripts/post.py --skill dev-feedback pr-create --repo <team-skills repo> --source <branch> --title "<target>: <the fix>" --workitem <id> --file - <<'EOF'
 <description>
 EOF
 ```

@@ -11,7 +11,8 @@ Start work on a PBI or a task. The criteria agreed here are what /dev-finish
 checks, /dev-review judges, and QA tests, so make them concrete before any
 code exists. Unclear requirements are cheapest to fix now.
 
-Paths below are relative to this skill's folder. Run its scripts with
+`<skill>` stands for this skill's folder, `~/.agents/skills/dev-start` once
+installed, and other paths are relative to it. Run its scripts with
 `uv run`, or with `python3` when that is 3.11 or later. Every ADO write goes
 through `scripts/post.py --skill dev-start`, which adds the footer and
 enforces the length caps. Write what it posts in the shape
@@ -34,7 +35,7 @@ changes items that belong to someone else, approves, and merges.
 
 ## 1. Read the context
 
-Read the repository's `AGENTS.md`. Then run `scripts/ticket.py <id>`, which
+Read the repository's `AGENTS.md`. Then run `uv run <skill>/scripts/ticket.py <id>`, which
 prints the item, the PBI above it with its criteria, the PBI's dev tasks, and
 its QA task.
 
@@ -66,7 +67,7 @@ them and write nothing.
 Once the developer confirms, put the criteria on the PBI:
 
 ```sh
-uv run scripts/post.py --skill dev-start describe <pbi> --field acceptance-criteria --file - <<'EOF'
+uv run <skill>/scripts/post.py --skill dev-start describe <pbi> --field acceptance-criteria --file - <<'EOF'
 1. When ...
 EOF
 ```
@@ -80,7 +81,7 @@ Done when the developer has confirmed criteria that meet
 ## 3. Claim the task
 
 ```sh
-uv run scripts/post.py --skill dev-start update <task> --state "In Progress" --assignee @me
+uv run <skill>/scripts/post.py --skill dev-start update <task> --state "In Progress" --assignee @me
 ```
 
 Use the state in the task type's `InProgress` category, which
@@ -90,7 +91,7 @@ Use the state in the task type's `InProgress` category, which
 When the PBI has no QA task, create one. /dev-finish writes its description.
 
 ```sh
-uv run scripts/post.py --skill dev-start create --type Task --parent <pbi> --title "QA: <PBI title>" --field "Activity=Testing"
+uv run <skill>/scripts/post.py --skill dev-start create --type Task --parent <pbi> --title "QA: <PBI title>" --field "Activity=Testing"
 ```
 
 Done when the task is In Progress and assigned to the developer, and the PBI
@@ -103,7 +104,7 @@ Take the repository's name from the last segment of
 then switch to it:
 
 ```sh
-uv run scripts/post.py --skill dev-start branch <task> --repo <repo>
+uv run <skill>/scripts/post.py --skill dev-start branch <task> --repo <repo>
 git fetch origin && git switch <branch>
 ```
 
@@ -127,7 +128,7 @@ Wait for the developer to approve or correct it. Then post a summary of the
 approved plan on the dev task, in two sentences at most:
 
 ```sh
-uv run scripts/post.py --skill dev-start comment <task> "Plan: <approach>. Tests first for AC1 to AC3."
+uv run <skill>/scripts/post.py --skill dev-start comment <task> "Plan: <approach>. Tests first for AC1 to AC3."
 ```
 
 Done when the developer has approved the plan and its summary is on the task.

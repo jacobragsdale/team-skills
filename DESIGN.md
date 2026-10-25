@@ -327,7 +327,12 @@ none.
   the current repository. `ctx.py` covers the need for now.
 - The length cap's edge cases in `post.py`: whether pasted logs and code
   blocks count, and the exact override. These are decided with real comments
-  in front of the maintainer.
+  in front of the maintainer. Until then `post.py` caps comments at 600
+  characters and descriptions (pull requests, QA steps, criteria) at 2,000,
+  because the pull request shape above does not fit in 600. It counts every
+  character, and `--long` lifts the cap. The footer is italic on pull
+  requests and plain on work items, because agent-cli's conversion of
+  Markdown to work item HTML has no italics.
 - Each skill's internals, designed when that skill is built.
 
 ## To verify at work

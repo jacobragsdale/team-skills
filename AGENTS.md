@@ -14,7 +14,10 @@ before changing anything. It records the decisions these rules come from.
 - A skill is self-contained. It never reads a file outside its own folder,
   because the installed copy cannot reach the rest of the repository.
 - Edit shared snippets in `shared/`, never the copies inside a skill, then
-  sync the copies.
+  sync the copies with `uv run scripts/sync_shared.py`. `shared/sync.toml`
+  says which skills carry which file.
+- Run `uv run scripts/validate.py` before every commit. It checks these rules
+  and fails when a copy has drifted from its source.
 - Skills contain no company names, system names, hostnames, ticket content,
   or data. Facts about a repository come from that repository's `AGENTS.md`
   and `docs/app-context.md`, or from agent-cli.

@@ -77,6 +77,7 @@ class Repo:
     path: Path
     format_allowed: bool
     plan: bool
+    keep_config: bool
 
     def run(self, *command: str, ok: bool = False) -> subprocess.CompletedProcess[str]:
         done = subprocess.run(
@@ -105,6 +106,15 @@ def count(n: int, noun: str) -> str:
 def ours(path: Path) -> bool:
     """True when the file is missing or came from this script."""
     return not path.exists() or MARK in path.read_text(encoding="utf-8")
+
+
+def foreign(repo: Repo, what: str, template: str) -> bool:
+    """True when the repository's own config should stay; raise unless --keep-config."""
+    if not repo.keep_config:
+        raise AdoptError(
+            f"{what} exists; merge {template} into it by hand, then rerun with --keep-config"
+        )
+    return True
 
 
 def copy_template(repo: Repo, source: str, target: str) -> None:
@@ -178,24 +188,29 @@ def open_pull_requests(path: Path) -> int | None:
 def python(repo: Repo, report: Report) -> None:
     pyproject = tomllib.loads(repo.text("pyproject.toml") or "")
     tools = pyproject.get("tool", {})
-    for name in ("ruff", "ty"):
-        if name in tools:
-            raise AdoptError(
-                f"pyproject.toml has [tool.{name}]; merge templates/lint/python/{name}.toml into it by hand"
-            )
-    for name in ("ruff.toml", ".ruff.toml", "ty.toml"):
-        if not ours(repo.path / name):
-            raise AdoptError(f"{name} exists; merge templates/lint/python/ by hand")
+    kept = set()
+    for name, files in (("ruff", ("ruff.toml", ".ruff.toml")), ("ty", ("ty.toml",))):
+        template = f"templates/lint/python/{name}.toml"
+        if name in tools and foreign(repo, f"[tool.{name}] in pyproject.toml", template):
+            kept.add(name)
+        for file in files:
+            if not ours(repo.path / file) and foreign(repo, file, template):
+                kept.add(name)
     if pyproject and not (repo.path / ".venv").is_dir() and "VIRTUAL_ENV" not in os.environ:
         # Without the environment, ty would suppress every unresolved import.
         raise AdoptError(
             "sync the project's environment first (uv sync), so ty can resolve imports"
         )
+    applied = [f"{name}.toml" for name in ("ruff", "ty") if name not in kept]
+    configs = ", ".join(
+        [f"apply {name}" for name in applied]
+        + [f"keep the repository's {name} config" for name in sorted(kept)]
+    )
     if repo.plan:
-        report.done.append("python: would apply ruff.toml and ty.toml, fix, and suppress")
+        report.done.append(f"python: would {configs}, fix, and suppress")
         return
-    copy_template(repo, "python/ruff.toml", "ruff.toml")
-    copy_template(repo, "python/ty.toml", "ty.toml")
+    for name in applied:
+        copy_template(repo, f"python/{name}", name)
     ruff, ty = tool("ruff"), tool("ty")
     repo.run(*ruff, "check", "--fix", "--no-unsafe-fixes", "--exit-zero", ".")
     if repo.format_allowed:
@@ -206,7 +221,8 @@ def python(repo: Repo, report: Report) -> None:
     repo.run(*ruff, "check", ".", ok=True)
     repo.run(*ty, "check", ok=True)
     report.done.append(
-        "python: ruff.toml and ty.toml applied; safe fixes made; the rest has noqa or ty: ignore"
+        f"python: {configs.replace('apply ', 'applied ').replace('keep ', 'kept ')}; safe fixes made;"
+        " the rest has noqa or ty: ignore"
     )
     report.checks.append("ruff check . && ty check")
 
@@ -282,11 +298,10 @@ def typescript(repo: Repo, report: Report) -> None:
     kind = "angular" if "@angular/core" in deps else "typescript"
     wanted = (*ESLINT_PACKAGES, "angular-eslint") if kind == "angular" else ESLINT_PACKAGES
     configs = [*repo.path.glob("eslint.config.*"), *repo.path.glob(".eslintrc*")]
-    foreign = [p.name for p in configs if not ours(p)]
-    if foreign:
-        raise AdoptError(
-            f"{', '.join(foreign)} exists; merge templates/lint/{kind}/eslint.config.mjs by hand"
-        )
+    theirs = [p.name for p in configs if not ours(p)]
+    keep = bool(theirs) and foreign(
+        repo, ", ".join(theirs), f"templates/lint/{kind}/eslint.config.mjs"
+    )
     missing = [p for p in wanted if node_version(repo, p) is None]
     if missing:
         raise AdoptError(
@@ -295,16 +310,16 @@ def typescript(repo: Repo, report: Report) -> None:
     eslint = node_version(repo, "eslint") or ()
     if eslint < ESLINT_MIN:
         raise AdoptError("ESLint 9.24 or later is needed for bulk suppressions; update it first")
+    config = "kept the repository's ESLint config" if keep else f"{kind} ESLint config applied"
     if repo.plan:
-        report.done.append(f"ts: would apply the {kind} ESLint config and strict compiler options")
+        report.done.append(f"ts: would apply strict compiler options; {config}")
         return
-    copy_template(repo, f"{kind}/eslint.config.mjs", "eslint.config.mjs")
+    if not keep:
+        copy_template(repo, f"{kind}/eslint.config.mjs", "eslint.config.mjs")
     repo.run("npx", "eslint", "--fix", ".")
     repo.run("npx", "eslint", "--suppress-all", ".")
     repo.run("npx", "eslint", ".", ok=True)
-    report.done.append(
-        f"ts: {kind} ESLint config applied; safe fixes made; the rest in eslint-suppressions.json"
-    )
+    report.done.append(f"ts: {config}; safe fixes made; the rest in eslint-suppressions.json")
     strict_compiler_options(repo, report, kind)
     if repo.format_allowed and node_version(repo, "prettier") is not None:
         repo.run("npx", "prettier", "--write", ".", ok=True)
@@ -372,18 +387,20 @@ def dotnet_target(repo: Repo) -> str:
 
 def dotnet(repo: Repo, report: Report) -> None:
     props = repo.path / "Directory.Build.props"
-    if not ours(props):
-        raise AdoptError(
-            "Directory.Build.props exists; merge templates/lint/dotnet/Directory.Build.props by hand"
-        )
+    keep = not ours(props) and foreign(
+        repo, "Directory.Build.props", "templates/lint/dotnet/Directory.Build.props"
+    )
     if repo.plan:
         report.done.append(
-            "dotnet: would apply Directory.Build.props and the .editorconfig analyzer block"
+            "dotnet: would "
+            + ("keep Directory.Build.props" if keep else "apply Directory.Build.props")
+            + " and add the .editorconfig analyzer block"
         )
         return
     target = dotnet_target(repo)
     repo.run("dotnet", "build", target, "-nologo", ok=True)
-    copy_template(repo, "dotnet/Directory.Build.props", "Directory.Build.props")
+    if not keep:
+        copy_template(repo, "dotnet/Directory.Build.props", "Directory.Build.props")
     baseline = (TEMPLATES / "dotnet" / "editorconfig").read_text(encoding="utf-8")
     editorconfig = repo.path / ".editorconfig"
     existing = repo.text(".editorconfig") or "root = true\n"
@@ -406,19 +423,17 @@ def dotnet(repo: Repo, report: Report) -> None:
         repo.run("dotnet", "format", target, "whitespace", ok=True)
         report.done.append("dotnet: formatted with dotnet format whitespace")
     suppressed: set[str] = set()
-    for _ in range(SUPPRESS_ROUNDS):
+    for round_number in range(SUPPRESS_ROUNDS + 1):
         build = repo.run("dotnet", "build", target, "-nologo", "--no-incremental")
         if build.returncode == 0:
             break
         found = set(DOTNET_DIAGNOSTIC_RE.findall(build.stdout + build.stderr)) - suppressed
-        if not found:
+        if not found or round_number == SUPPRESS_ROUNDS:
             raise AdoptError(
-                "dotnet build fails with nothing left to suppress:\n" + build.stdout[-2000:]
+                "dotnet build still fails with nothing left to suppress:\n" + build.stdout[-2000:]
             )
         suppressed |= found
         write(suppressed)
-    else:
-        raise AdoptError("dotnet build still fails after suppressing; see the build output")
     report.done.append(
         f"dotnet: analyzers on, warnings fail the build; {count(len(suppressed), 'rule')} set to suggestion in .editorconfig"
     )
@@ -472,8 +487,10 @@ def rust(repo: Repo, report: Report) -> None:
     original = manifest.read_text(encoding="utf-8")
     outside = original.split(BEGIN, 1)[0]
     if re.search(r"^\[(workspace\.)?lints", outside, re.MULTILINE):
+        # The allow-list goes into the lint tables, which cannot be split in two.
         raise AdoptError(
-            "Cargo.toml already has lint tables; merge templates/lint/rust/lints.toml by hand"
+            "Cargo.toml already has lint tables, which this script cannot add to; merge "
+            "templates/lint/rust/lints.toml by hand and allow what still warns there"
         )
     workspace = re.search(r"^\[workspace\]", original, re.MULTILINE) is not None
     prefix = "workspace.lints" if workspace else "lints"
@@ -580,6 +597,11 @@ def main(argv: list[str]) -> int:
         help="auto: only with no open PRs",
     )
     parser.add_argument("--plan", action="store_true", help="say what would happen; change nothing")
+    parser.add_argument(
+        "--keep-config",
+        action="store_true",
+        help="keep lint configs the repository already has; still fix and suppress",
+    )
     parser.add_argument("--allow-dirty", action="store_true", help="run on uncommitted changes")
     args = parser.parse_args(argv)
     path = args.repo.expanduser().resolve()
@@ -597,7 +619,7 @@ def main(argv: list[str]) -> int:
         return 2
     report = Report()
     format_allowed = False if args.plan else decide_format(args.format, path, report)
-    repo = Repo(path, format_allowed, args.plan)
+    repo = Repo(path, format_allowed, args.plan, args.keep_config)
     found = detect(repo)
     if args.only:
         only = {s.strip() for s in args.only.split(",")}
