@@ -19,7 +19,12 @@ repository holds no shell scripts.
 Banned words: when ~/.config/team-skills/banned-words.txt exists (or the file
 TEAM_SKILLS_BANNED_WORDS names), none of its words, one per line, appear in
 skills/, shared/, or templates/. The list stays outside the repository, so
-the names it guards never get committed.
+the names it guards never get committed. team.toml is the one file allowed to
+hold the team's real names, so the check skips it.
+
+Porting: every line still marked `PORT:` in shared/, scripts/, or a SKILL.md
+prints as a warning. Warnings never fail the run; docs/porting.md says how to
+clear them at work.
 
 Prints one line per problem and exits 1 when there is any.
 """
@@ -55,6 +60,8 @@ PEP723_RE = re.compile(r"^# /// script\n((?:#.*\n)*?)# ///$", re.MULTILINE)
 SHELL_SUFFIXES = {".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd"}
 TEXT_SUFFIXES = {".md", ".py", ".toml", ".json", ".yaml", ".yml", ".txt", ".js"}
 SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules"}
+TEAM_FILE = "team.toml"
+PORT_RE = re.compile(r"\bPORT:")
 
 
 def files(root: Path) -> Iterator[Path]:
@@ -218,6 +225,8 @@ def check_banned(problems: list[str]) -> None:
         for path in files(ROOT / folder):
             if path.suffix not in TEXT_SUFFIXES and path.name not in {".editorconfig"}:
                 continue
+            if path.name == TEAM_FILE:
+                continue
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if pattern.search(line):
                     problems.append(f"{rel(path)}:{number}: holds a banned word")
@@ -237,6 +246,20 @@ def check_repository(problems: list[str]) -> None:
                 problems.append(f"{rel(entry)}: names no skill in skills/")
 
 
+def port_markers() -> list[str]:
+    """Lines still marked PORT:, in the sources only, not in the skills' synced copies."""
+    sources = [*files(ROOT / "shared"), *files(ROOT / "scripts")]
+    sources += sorted((ROOT / "skills").glob("*/SKILL.md"))
+    out = []
+    for path in sources:
+        if path.suffix not in TEXT_SUFFIXES or path == Path(__file__).resolve():
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if PORT_RE.search(line):
+                out.append(f"{rel(path)}:{number}: {line.strip()}")
+    return out
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -250,6 +273,11 @@ def main(argv: list[str]) -> int:
     check_copies(problems)
     check_repository(problems)
     check_banned(problems)
+    ports = port_markers()
+    for port in ports:
+        print(f"warning: {port}")
+    if ports:
+        print(f"{len(ports)} PORT: markers remain; docs/porting.md clears them", file=sys.stderr)
     for problem in problems:
         print(problem)
     if problems:

@@ -26,10 +26,11 @@ these:
 1. Commit the work on the task's branch and push it.
 2. Open the pull request linked to the dev task, or update the one already
    open.
-3. Write the QA task's description.
-4. Comment on the dev task that the pull request is open.
+3. Set the dev task's Remaining Work to 0, since the coding is done.
+4. Write the QA task's description.
+5. Comment on the dev task that the pull request is open.
 
-Ask before any other write, including adding reviewers. A person always
+Ask before any other write, including asking reviewers in step 6. A person always
 closes or deletes work items, changes items that belong to someone else,
 approves, and merges, so never turn on auto-complete.
 
@@ -108,10 +109,37 @@ last segment of `git remote get-url origin`. When a pull request is already
 open for the branch, `pr-create` returns it; then replace its description
 with `pr-describe <id>` if the description no longer fits the change.
 
-Done when the pull request is open, linked to the dev task, and its
-description fits the change.
+Then set the dev task's Remaining Work to 0:
 
-## 6. Give QA its steps
+```sh
+uv run <skill>/scripts/post.py --skill dev-finish update <task> --remaining 0
+```
+
+Done when the pull request is open, linked to the dev task, and its
+description fits the change, and the task has no hours left.
+
+## 6. Suggest reviewers
+
+Review is where the team's work waits longest, so name the people best
+placed to review it:
+
+```sh
+uv run <skill>/scripts/sprint.py --format md reviewers $(git diff --name-only origin/<default branch>...HEAD)
+```
+
+It picks one or two teammates from `assets/team.toml`: whoever changed these
+files most recently, with ties going to whoever owes the fewest reviews.
+Show them with the reasons and ask. When the developer agrees, ask them in
+one comment, which notifies them:
+
+```sh
+uv run <skill>/scripts/post.py --skill dev-finish pr-comment <pr> "@<Name> and @<Name>, this is ready for your review."
+```
+
+Done when the developer has agreed to reviewers and they are asked, or the
+developer declined.
+
+## 7. Give QA its steps
 
 Write the QA task's description from the criteria and the `## Verify` section
 of `AGENTS.md`: one block per criterion, in the shape `references/style.md`
@@ -129,7 +157,7 @@ before replacing it. If the PBI has no QA task, ask whether to create one.
 
 Done when the QA task's description covers every criterion.
 
-## 7. Report
+## 8. Report
 
 Comment on the dev task, in two sentences at most:
 

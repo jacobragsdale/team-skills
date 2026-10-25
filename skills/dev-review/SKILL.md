@@ -1,7 +1,7 @@
 ---
 name: dev-review
 description: Review a teammate's pull request against its acceptance criteria and the review checklist, drafting comments for you to post.
-argument-hint: <pull request id>
+argument-hint: [pull request id]
 disable-model-invocation: true
 ---
 
@@ -21,6 +21,15 @@ exactly those, through `scripts/post.py --skill dev-review`. Voting,
 approving, and completing a pull request are always the person's.
 
 ## 1. Read the context
+
+With no id, list the pull requests waiting on the person's vote:
+
+```sh
+agent-cli ado pr list --reviewer @me --vote none --draft false --limit 50 --fields id,repo,title,author,created
+```
+
+Leave out the ones they opened, show the rest oldest first, and review the
+one they pick.
 
 Read the `AGENTS.md` of the pull request's repository: this one when its
 remote is that repository, or else `~/dev/<repo>/AGENTS.md`. Then gather:

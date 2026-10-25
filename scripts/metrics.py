@@ -17,6 +17,9 @@ A skill that moves none of these numbers is cut. Run this weekly with --log,
 which appends one JSON line per run, so the baseline and every week after it
 sit in one file. Reads only; every call goes through agent-cli.
 
+The team and area default to shared/team.toml's [ado] values. In a terminal
+the summary is a colored table; piped, it is Markdown; --json prints the data.
+
 Examples:
   metrics.py
   metrics.py --since 14d --area 'web\\orders' --log ~/team-metrics.jsonl
@@ -40,6 +43,10 @@ from pathlib import Path
 
 if sys.version_info < (3, 11):
     sys.exit("metrics.py needs Python 3.11 or later; run it with `uv run`.")
+
+import tomllib
+
+TEAM_FILE = Path(__file__).resolve().parent.parent / "shared" / "team.toml"
 
 # ADO's state categories, which every process maps its own state names onto.
 ACTIVE_CATEGORY = "InProgress"
@@ -347,7 +354,23 @@ def attention(scope: Scope, now: datetime, silent_days: int, stale_days: int) ->
     return Attention(active=len(items), silent=silent, stale=stale)
 
 
-def render(result: dict[str, object]) -> str:
+def team_defaults() -> dict[str, str]:
+    """[ado] team and area from shared/team.toml, when they are filled in."""
+    try:
+        config = tomllib.loads(TEAM_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except tomllib.TOMLDecodeError as err:
+        raise MetricsError(f"{TEAM_FILE}: {err}") from err
+    section = config.get("ado")
+    if not isinstance(section, dict):
+        return {}
+    return {
+        k: v.strip() for k in ("team", "area") if isinstance(v := section.get(k), str) and v.strip()
+    }
+
+
+def summary_rows(result: dict[str, object]) -> list[tuple[str, str, str]]:
     def hours(value: object) -> str:
         return "-" if value is None else f"{value} h"
 
@@ -356,20 +379,56 @@ def render(result: dict[str, object]) -> str:
     turnaround = obj(reviews["turnaround"], "turnaround")
     work = obj(result["attention"], "attention")
     silent, stale = work["silent"], work["stale"]
-    return "\n".join(
-        [
-            f"Window: {result['since']} to {result['until']}",
-            f"Cycle time:        median {hours(cycle['median_hours'])}, p85 {hours(cycle['p85_hours'])} "
-            f"over {cycle['count']} finished items",
-            f"Review turnaround: median {hours(turnaround['median_hours'])}, p85 {hours(turnaround['p85_hours'])} "
-            f"over {turnaround['count']} pull requests; {reviews['waiting']} still waiting "
-            f"(oldest {hours(reviews['oldest_waiting_hours'])})",
-            f"Silent items:      {len(silent) if isinstance(silent, list) else silent} of {work['active']} active "
-            f"with no comment in {result['silent_days']} days",
-            f"Stale items:       {len(stale) if isinstance(stale, list) else stale} of {work['active']} active "
+    return [
+        (
+            "Cycle time",
+            f"median {hours(cycle['median_hours'])}, p85 {hours(cycle['p85_hours'])}",
+            f"{cycle['count']} finished items",
+        ),
+        (
+            "Review turnaround",
+            f"median {hours(turnaround['median_hours'])}, p85 {hours(turnaround['p85_hours'])}",
+            f"{turnaround['count']} pull requests; {reviews['waiting']} still waiting"
+            f" (oldest {hours(reviews['oldest_waiting_hours'])})",
+        ),
+        (
+            "Silent items",
+            f"{len(silent) if isinstance(silent, list) else silent} of {work['active']} active",
+            f"no comment in {result['silent_days']} days",
+        ),
+        (
+            "Stale items",
+            f"{len(stale) if isinstance(stale, list) else stale} of {work['active']} active",
             f"in the same state over {result['stale_days']} days",
+        ),
+    ]
+
+
+def render(result: dict[str, object], *, terminal: bool, color: bool) -> str:
+    title = f"Window: {result['since']} to {result['until']}"
+    table = [("Measure", "Value", "Over"), *summary_rows(result)]
+    if not terminal:
+        lines = [title, "", "| " + " | ".join(table[0]) + " |", "|---|---|---|"]
+        return "\n".join(lines + ["| " + " | ".join(row) + " |" for row in table[1:]])
+    widths = [max(len(row[n]) for row in table) for n in range(3)]
+
+    def paint(text: str, code: str) -> str:
+        return f"\033[{code}m{text}\033[0m" if color else text
+
+    def line(left: str, mid: str, right: str) -> str:
+        return left + mid.join("─" * (w + 2) for w in widths) + right
+
+    def cells(row: tuple[str, str, str], code: str | None) -> str:
+        parts = [
+            " " + (paint(c, code) if code else c) + " " * (w - len(c) + 1)
+            for c, w in zip(row, widths, strict=True)
         ]
-    )
+        return "│" + "│".join(parts) + "│"
+
+    out = [paint(title, "36"), line("┌", "┬", "┐"), cells(table[0], "1"), line("├", "┼", "┤")]
+    out += [cells(row, None) for row in table[1:]]
+    out.append(line("└", "┴", "┘"))
+    return "\n".join(out)
 
 
 def main(argv: list[str]) -> int:
@@ -392,7 +451,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--area", help="only this area path, children included")
     parser.add_argument("--iteration", help="only this iteration, or @current")
     parser.add_argument(
-        "--team", help="the team whose people and sprints count (default: [ado] team)"
+        "--team",
+        help="the team whose people and sprints count (default: team.toml, then [ado] team)",
     )
     parser.add_argument(
         "--repo", action="append", default=[], help="only these repositories' pull requests"
@@ -404,6 +464,9 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     now = datetime.now(UTC).replace(microsecond=0)
     try:
+        defaults = team_defaults()
+        args.team = args.team or defaults.get("team")
+        args.area = args.area or defaults.get("area")
         until = parse_moment(args.until, now) if args.until else now
         since = parse_moment(args.since, until)
         scope = Scope(
@@ -434,7 +497,11 @@ def main(argv: list[str]) -> int:
     if args.log:
         with args.log.expanduser().open("a", encoding="utf-8") as log:
             log.write(json.dumps(result, separators=(",", ":")) + "\n")
-    print(json.dumps(result, indent=1) if args.json else render(result))
+    if args.json:
+        print(json.dumps(result, indent=1))
+    else:
+        terminal = sys.stdout.isatty()
+        print(render(result, terminal=terminal, color=terminal and not os.environ.get("NO_COLOR")))
     return 0
 
 

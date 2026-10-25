@@ -5,7 +5,7 @@
 [[copy]]
 from = "shared/scripts/post.py"
 to = "scripts/post.py"
-skills = ["dev-context", "dev-start", "dev-finish", "dev-review", "dev-feedback"]
+skills = ["dev-context", "dev-start", "dev-create-ticket", "dev-finish", "dev-review", "dev-sprint", "dev-feedback"]
 
 [[copy]]
 from = "shared/scripts/ticket.py"
@@ -13,19 +13,34 @@ to = "scripts/ticket.py"
 skills = ["dev-start", "dev-finish", "dev-review"]
 
 [[copy]]
+from = "shared/scripts/sprint.py"
+to = "scripts/sprint.py"
+skills = ["dev-start", "dev-finish", "dev-sprint"]
+
+[[copy]]
 from = "shared/scripts/ctx.py"
 to = "scripts/ctx.py"
 skills = ["dev-context"]
 
 [[copy]]
+from = "shared/team.toml"
+to = "assets/team.toml"
+skills = ["dev-start", "dev-create-ticket", "dev-finish", "dev-sprint"]
+
+[[copy]]
 from = "shared/references/criteria.md"
 to = "references/criteria.md"
-skills = ["dev-start", "dev-finish", "dev-review"]
+skills = ["dev-start", "dev-create-ticket", "dev-finish", "dev-review"]
+
+[[copy]]
+from = "shared/references/sizing.md"
+to = "references/sizing.md"
+skills = ["dev-start", "dev-create-ticket"]
 
 [[copy]]
 from = "shared/references/style.md"
 to = "references/style.md"
-skills = ["dev-context", "dev-start", "dev-finish", "dev-review", "dev-feedback"]
+skills = ["dev-context", "dev-start", "dev-create-ticket", "dev-finish", "dev-review", "dev-sprint", "dev-feedback"]
 
 [[copy]]
 from = "shared/references/review-checklist.md"

@@ -1,7 +1,7 @@
 ---
 name: dev-start
 description: Claim a work item, make its acceptance criteria concrete, create its branch, and agree a plan before any code.
-argument-hint: <work item id>
+argument-hint: [work item id]
 disable-model-invocation: true
 ---
 
@@ -24,20 +24,36 @@ Running /dev-start is the developer's consent to these writes, and only these:
 
 1. Assign the dev task to the developer (`@me`) when it is unassigned.
 2. Set the dev task to In Progress.
-3. Write the confirmed criteria to the PBI.
-4. Create a QA task under the PBI when it has none.
-5. Create the task's branch in ADO, linked to the task.
-6. Post the approved plan on the dev task, as a comment.
+3. Move the dev task into the current sprint when it sits in no sprint or
+   in one that has ended.
+4. Write the confirmed criteria to the PBI. When a person wrote the
+   criteria already there, only after the developer confirms replacing them.
+5. Create a QA task under the PBI when it has none.
+6. Create the task's branch in ADO, linked to the task.
+7. Write the dev task's estimate when it has none, as part of the approved
+   plan.
+8. Post the approved plan on the dev task, as a comment.
 
 Skip any write that is already in place, so running the skill again is safe.
-Ask before any other write. A person always closes or deletes work items,
-changes items that belong to someone else, approves, and merges.
+Ask before any other write, including moving the PBI into the sprint. A
+person always closes or deletes work items, changes items that belong to
+someone else, approves, and merges.
 
 ## 1. Read the context
 
-Read the repository's `AGENTS.md`. Then run `uv run <skill>/scripts/ticket.py <id>`, which
-prints the item, the PBI above it with its criteria, the PBI's dev tasks, and
-its QA task.
+Read the repository's `AGENTS.md`, and `assets/team.toml` for the team's
+name. With no id, find the next task in the current sprint:
+
+```sh
+uv run <skill>/scripts/sprint.py --format md next
+```
+
+Offer the top task, and take its id when the developer says yes. When none
+is waiting, say so and offer /dev-create-ticket.
+
+Then run `uv run <skill>/scripts/ticket.py <id>`, which prints the item, its
+sprint, the PBI above it with its criteria, the PBI's dev tasks with their
+Remaining Work, and its QA task.
 
 - When the id is a PBI, its dev task is the one assigned to the developer, or
   else the only unassigned one. If that leaves none or several, ask which. If
@@ -50,19 +66,14 @@ Done when you know the dev task, the PBI, and whether a QA task exists.
 
 ## 2. Make the criteria concrete
 
-Read `references/criteria.md`. Judge the change's size from the PBI, the
-task, and the code it touches, and question the developer to match:
+Read `references/sizing.md` and `references/criteria.md`, judge the change's
+size from the PBI, the task, and the code it touches, and question the
+developer at the depth the size calls for. When the PBI already has criteria
+that meet `references/criteria.md`, confirm them and write nothing.
 
-| Size | Looks like | Do |
-|---|---|---|
-| Tweak | A copy or config change, one obvious edit, or a bug with a clear repro | Ask nothing. State the criteria in one to three lines and ask the developer to confirm them. |
-| Normal | One behavior change in one area | Ask one round of at most five questions, then state the criteria. |
-| Major | Several PBIs' worth, a new integration, or a design decision nobody has made | Stop. Say it needs a design and a split into PBIs first (/dev-design, once it is installed). |
-
-Ask only what the ticket, the code, and `AGENTS.md` cannot answer, and give
-your recommended answer with each question so the developer can reply "yes".
-When the PBI already has criteria that meet `references/criteria.md`, confirm
-them and write nothing.
+When the PBI's criteria fall short and do not end in the "Agent-written via"
+footer, a person wrote them. Show your version and ask the developer to
+confirm replacing theirs. One yes is enough.
 
 Once the developer confirms, put the criteria on the PBI:
 
@@ -88,14 +99,31 @@ Use the state in the task type's `InProgress` category, which
 `agent-cli ado workitem-type get Task --fields states` shows. Leave out
 `--assignee` when the task is already the developer's.
 
+Keep the task in the sprint. List the team's sprints, leaving out `--team`
+when `team.toml` gives none:
+
+```sh
+agent-cli ado sprint list --team '<team>' --fields path,timeframe
+```
+
+When the task's sprint is the current one or a future one, leave it. When
+it is in no sprint or one that has ended, move it:
+
+```sh
+uv run <skill>/scripts/post.py --skill dev-start update <task> --iteration '<current sprint path>'
+```
+
+When the PBI sits in no current or future sprint, ask before moving it the
+same way, because moving it changes the sprint's scope.
+
 When the PBI has no QA task, create one. /dev-finish writes its description.
 
 ```sh
 uv run <skill>/scripts/post.py --skill dev-start create --type Task --parent <pbi> --title "QA: <PBI title>" --field "Activity=Testing"
 ```
 
-Done when the task is In Progress and assigned to the developer, and the PBI
-has a QA task.
+Done when the task is In Progress, assigned to the developer, and in the
+current sprint, and the PBI has a QA task.
 
 ## 4. Create the branch
 
@@ -116,16 +144,25 @@ Done when the branch is checked out and linked to the task.
 
 ## 5. Agree the plan
 
-For a tweak, skip to step 6. Otherwise read the code the change touches, then
-show the developer the plan:
+For a tweak, propose only an estimate when the task has none, write it once
+the developer agrees, and skip to step 6. Otherwise read the code the change
+touches, then show the developer the plan:
 
 - the approach, in two or three sentences
 - each criterion, with the test that will prove it and where the test goes
 - the files to change
 - the risks, and anything you are unsure of
+- the estimate in hours, when the dev task's Remaining Work is empty
 
-Wait for the developer to approve or correct it. Then post a summary of the
-approved plan on the dev task, in two sentences at most:
+Wait for the developer to approve or correct it. Write the agreed estimate,
+which sets Original Estimate where the process has one, and Remaining Work:
+
+```sh
+uv run <skill>/scripts/post.py --skill dev-start update <task> --estimate <hours>
+```
+
+Then post a summary of the approved plan on the dev task, in two sentences
+at most:
 
 ```sh
 uv run <skill>/scripts/post.py --skill dev-start comment <task> "Plan: <approach>. Tests first for AC1 to AC3."

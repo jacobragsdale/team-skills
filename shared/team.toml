@@ -1,0 +1,51 @@
+# The team's own facts, which the skills cannot get from ADO. sync_shared.py
+# copies this file into each skill that reads it, as assets/team.toml.
+#
+# This is the one file in the repository that holds real data, and only in
+# the ADO copy. At home every value stays a placeholder. docs/porting.md says
+# how to fill it in at work. An empty value falls back to agent-cli's own
+# default, and a skill reports a part still empty, such as the time-log
+# commands, as not set up.
+
+[ado]
+# PORT: the ADO team name that --team takes, for sprints and capacity.
+team = ""
+# PORT: the team's area path, so views and new tickets stay inside it.
+area = ""
+
+# PORT: one [[people]] table per member. `ado team` cannot list the team in
+# every organization, so the roster is kept here. The address is the sign-in
+# address that --assignee takes.
+# [[people]]
+# name = "Display Name"
+# address = "sign-in address"
+
+[tags]
+# PORT: the exact names of the tags the team already uses. The skills add
+# no tags of their own, and post.py refuses any tag not named here.
+blocked = "Blocked"
+ready_for_qa = "Ready for QA"
+ready_for_deployment = "Ready for deployment"
+# PORT: the item that carries the tags: "task" (the dev task) or "pbi".
+on = "task"
+# PORT: when /dev-sprint offers Ready for QA. "merged" means once the linked
+# pull request has merged.
+ready_for_qa_when = "merged"
+
+[timelog]
+# PORT: your agent-cli's time-log commands, as the arguments after
+# `agent-cli`. {person}, {since}, {until}, {task}, {date}, {hours}, and
+# {entry} are filled in. `list` must print a JSON list of entries. Leave a
+# command empty until it is ported; the skills then skip time.
+list = []
+create = []
+update = []
+delete = []
+# PORT: the keys of each listed entry that hold its id, task, date, and hours.
+fields = { id = "id", task = "task", date = "date", hours = "hours" }
+# Every working day carries exactly this many hours.
+day_hours = 8
+# PORT: entries are whole multiples of this, and at least one.
+block_hours = 1
+# PORT: the work item that all time off is logged to.
+time_off_task = 0

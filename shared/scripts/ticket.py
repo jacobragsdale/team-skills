@@ -7,8 +7,9 @@
 
 Give a work item id (a task, a PBI, a user story, a bug) and get back the
 backlog item above it (the PBI) with its acceptance criteria, and the PBI's
-tasks split into dev tasks and the QA task. A task whose title starts with
-"QA" is the QA task. Give --pr instead to do the same for every work item a
+tasks split into dev tasks and the QA task, each with its Remaining Work
+(none when nobody estimated it). A task whose title starts with "QA" is the
+QA task. Give --pr instead to do the same for every work item a
 pull request links.
 
 Reads only; every call goes through agent-cli.
@@ -35,7 +36,8 @@ if sys.version_info < (3, 11):
 TASK_TYPES = frozenset({"task"})
 QA_PREFIX = "qa"
 ITEM_FIELDS = (
-    "id,type,title,state,assignee,parent,description,acceptance_criteria,branches,pull_requests,url"
+    "id,type,title,state,assignee,iteration,tags,parent,description,acceptance_criteria,"
+    "branches,pull_requests,url"
 )
 
 
@@ -51,6 +53,7 @@ class Task:
     title: str
     state: str
     assignee: str | None
+    remaining_work: float | None
 
 
 @dataclass(frozen=True)
@@ -60,6 +63,8 @@ class Item:
     title: str
     state: str
     assignee: str | None
+    iteration: str
+    tags: list[str]
     parent: int | None
     url: str
     description: str
@@ -129,6 +134,15 @@ def optional_text(row: dict[str, object], key: str, what: str) -> str | None:
     return text(row, key, what) if row.get(key) is not None else None
 
 
+def hours(row: dict[str, object], key: str, what: str) -> float | None:
+    value = row.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TicketError(f"{what}: {key} is not a number")
+    return float(value)
+
+
 def refs(row: dict[str, object], key: str, label: str, what: str) -> list[str]:
     out = []
     for entry in as_list(row.get(key), f"{what}: {key}"):
@@ -149,6 +163,8 @@ def get_item(item_id: int) -> Item:
         title=text(row, "title", what),
         state=text(row, "state", what),
         assignee=optional_text(row, "assignee", what),
+        iteration=text(row, "iteration", what, required=False),
+        tags=[str(t) for t in as_list(row.get("tags"), f"{what}: tags")],
         parent=optional_number(row, "parent", what),
         url=text(row, "url", what),
         description=text(row, "description", what, required=False),
@@ -172,6 +188,7 @@ def tasks_of(pbi_id: int) -> list[Task]:
                 title=text(child, "title", what),
                 state=text(child, "state", what),
                 assignee=optional_text(child, "assignee", what),
+                remaining_work=hours(child, "remaining_work", what),
             )
         )
     return out
