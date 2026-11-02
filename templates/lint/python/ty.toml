@@ -1,16 +1,11 @@
 # Team lint baseline from team-skills templates/lint. adopt_lint.py copies it.
 [rules]
-blanket-ignore-comment = "error"
-missing-override-decorator = "error"
-missing-type-argument = "error"
-possibly-unresolved-reference = "warn"
-unsound-return-statement = "error"
-unsound-yield = "error"
-unsupported-dynamic-base = "warn"
+all = "error"  # Every rule is an error, including those ty leaves off by default. Opt out one rule at a time, with a reason.
 
 [analysis]
 respect-type-ignore-comments = false  # Require a specific `# ty: ignore[rule]` suppression.
-strict-generic-narrowing = true
+strict-generic-narrowing = true  # isinstance on a generic narrows to its top materialization, e.g. list[object].
+strict-equality-semantics = true  # Do not narrow from ==, in, or match value patterns; a subclass can compare equal.
 
 [terminal]
 error-on-warning = true
