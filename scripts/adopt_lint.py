@@ -80,9 +80,7 @@ class Repo:
     keep_config: bool
 
     def run(self, *command: str, ok: bool = False) -> subprocess.CompletedProcess[str]:
-        done = subprocess.run(
-            list(command), cwd=self.path, capture_output=True, text=True, check=False
-        )
+        done = subprocess.run(list(command), cwd=self.path, capture_output=True, text=True, check=False)
         if ok and done.returncode != 0:
             tail = (done.stdout + done.stderr).strip().splitlines()[-15:]
             raise AdoptError(f"`{' '.join(command)}` failed:\n  " + "\n  ".join(tail))
@@ -111,9 +109,8 @@ def ours(path: Path) -> bool:
 def foreign(repo: Repo, what: str, template: str) -> bool:
     """True when the repository's own config should stay; raise unless --keep-config."""
     if not repo.keep_config:
-        raise AdoptError(
-            f"{what} exists; merge {template} into it by hand, then rerun with --keep-config"
-        )
+        msg = f"{what} exists; merge {template} into it by hand, then rerun with --keep-config"
+        raise AdoptError(msg)
     return True
 
 
@@ -128,7 +125,8 @@ def replace_block(text: str, block: str) -> str:
     if start != -1:
         end = text.find(END, start)
         if end == -1:
-            raise AdoptError(f"found {BEGIN!r} with no {END!r}; fix the file by hand")
+            msg = f"found {BEGIN!r} with no {END!r}; fix the file by hand"
+            raise AdoptError(msg)
         text = text[:start] + text[end + len(END) :].lstrip("\n")
     body = text.rstrip("\n")
     return f"{body}\n\n{BEGIN}\n{block.rstrip()}\n{END}\n" if body else f"{BEGIN}\n{block}\n{END}\n"
@@ -139,40 +137,17 @@ def tool(name: str) -> list[str]:
         return [name]
     if shutil.which("uvx"):
         return ["uvx", name]
-    raise AdoptError(f"{name} is not installed, and neither is uv")
+    msg = f"{name} is not installed, and neither is uv"
+    raise AdoptError(msg)
 
 
 def open_pull_requests(path: Path) -> int | None:
-    remote = subprocess.run(
-        ["git", "remote", "get-url", "origin"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    remote = subprocess.run(["git", "remote", "get-url", "origin"], cwd=path, capture_output=True, text=True, check=False)
     agent_cli = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
     if remote.returncode != 0 or agent_cli is None:
         return None
     name = remote.stdout.strip().rstrip("/").removesuffix(".git").rsplit("/", 1)[-1]
-    done = subprocess.run(
-        [
-            agent_cli,
-            "ado",
-            "pr",
-            "list",
-            "--repo",
-            name,
-            "--status",
-            "active",
-            "--fields",
-            "id",
-            "--limit",
-            "500",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    done = subprocess.run([agent_cli, "ado", "pr", "list", "--repo", name, "--status", "active", "--fields", "id", "--limit", "500"], capture_output=True, text=True, check=False)
     if done.returncode != 0:
         return None
     try:
@@ -198,14 +173,10 @@ def python(repo: Repo, report: Report) -> None:
                 kept.add(name)
     if pyproject and not (repo.path / ".venv").is_dir() and "VIRTUAL_ENV" not in os.environ:
         # Without the environment, ty would suppress every unresolved import.
-        raise AdoptError(
-            "sync the project's environment first (uv sync), so ty can resolve imports"
-        )
+        msg = "sync the project's environment first (uv sync), so ty can resolve imports"
+        raise AdoptError(msg)
     applied = [f"{name}.toml" for name in ("ruff", "ty") if name not in kept]
-    configs = ", ".join(
-        [f"apply {name}" for name in applied]
-        + [f"keep the repository's {name} config" for name in sorted(kept)]
-    )
+    configs = ", ".join([f"apply {name}" for name in applied] + [f"keep the repository's {name} config" for name in sorted(kept)])
     if repo.plan:
         report.done.append(f"python: would {configs}, fix, and suppress")
         return
@@ -220,10 +191,7 @@ def python(repo: Repo, report: Report) -> None:
     repo.run(*ty, "check", "--add-ignore")
     repo.run(*ruff, "check", ".", ok=True)
     repo.run(*ty, "check", ok=True)
-    report.done.append(
-        f"python: {configs.replace('apply ', 'applied ').replace('keep ', 'kept ')}; safe fixes made;"
-        " the rest has ruff: ignore or ty: ignore"
-    )
+    report.done.append(f"python: {configs.replace('apply ', 'applied ').replace('keep ', 'kept ')}; safe fixes made; the rest has ruff: ignore or ty: ignore")
     report.checks.append("ruff check . && ty check")
 
 
@@ -257,9 +225,11 @@ def jsonc(text: str, where: str) -> dict[str, object]:
     try:
         value = json.loads(strip_jsonc(text))
     except json.JSONDecodeError as err:
-        raise AdoptError(f"{where} does not parse: {err}") from err
+        msg = f"{where} does not parse: {err}"
+        raise AdoptError(msg) from err
     if not isinstance(value, dict):
-        raise AdoptError(f"{where} is not a JSON object")
+        msg = f"{where} is not a JSON object"
+        raise AdoptError(msg)
     return value
 
 
@@ -267,7 +237,8 @@ def set_compiler_options(text: str, options: dict[str, bool]) -> str:
     """Set boolean compilerOptions in place, keeping the file's comments."""
     opening = re.search(r'"compilerOptions"\s*:\s*\{', text)
     if opening is None:
-        raise AdoptError("tsconfig.json has no compilerOptions object; add one by hand")
+        msg = "tsconfig.json has no compilerOptions object; add one by hand"
+        raise AdoptError(msg)
     inserts = []
     for name, value in options.items():
         literal = "true" if value else "false"
@@ -299,17 +270,15 @@ def typescript(repo: Repo, report: Report) -> None:
     wanted = (*ESLINT_PACKAGES, "angular-eslint") if kind == "angular" else ESLINT_PACKAGES
     configs = [*repo.path.glob("eslint.config.*"), *repo.path.glob(".eslintrc*")]
     theirs = [p.name for p in configs if not ours(p)]
-    keep = bool(theirs) and foreign(
-        repo, ", ".join(theirs), f"templates/lint/{kind}/eslint.config.mjs"
-    )
+    keep = bool(theirs) and foreign(repo, ", ".join(theirs), f"templates/lint/{kind}/eslint.config.mjs")
     missing = [p for p in wanted if node_version(repo, p) is None]
     if missing:
-        raise AdoptError(
-            f"install the ESLint packages first: npm install --save-dev {' '.join(missing)}"
-        )
+        msg = f"install the ESLint packages first: npm install --save-dev {' '.join(missing)}"
+        raise AdoptError(msg)
     eslint = node_version(repo, "eslint") or ()
     if eslint < ESLINT_MIN:
-        raise AdoptError("ESLint 9.24 or later is needed for bulk suppressions; update it first")
+        msg = "ESLint 9.24 or later is needed for bulk suppressions; update it first"
+        raise AdoptError(msg)
     config = "kept the repository's ESLint config" if keep else f"{kind} ESLint config applied"
     if repo.plan:
         report.done.append(f"ts: would apply strict compiler options; {config}")
@@ -326,22 +295,18 @@ def typescript(repo: Repo, report: Report) -> None:
         report.done.append("ts: formatted with prettier")
     report.checks.append("npx eslint . && npx tsc --noEmit -p tsconfig.json")
     if kind == "angular":
-        report.follow_up.append(
-            "ts: angularCompilerOptions (templates/lint/angular/tsconfig.angular-strict.json) need `ng build`; "
-            "turn them on in a cleanup pull request"
-        )
+        report.follow_up.append("ts: angularCompilerOptions (templates/lint/angular/tsconfig.angular-strict.json) need `ng build`; turn them on in a cleanup pull request")
 
 
 def strict_compiler_options(repo: Repo, report: Report, kind: str) -> None:
     """Turn on each strict option that compiles; list the ones that do not."""
     path = repo.path / "tsconfig.json"
     original = path.read_text(encoding="utf-8")
-    template = jsonc(
-        (TEMPLATES / kind / "tsconfig.strict.json").read_text(encoding="utf-8"), "template"
-    )
+    template = jsonc((TEMPLATES / kind / "tsconfig.strict.json").read_text(encoding="utf-8"), "template")
     options_value = template.get("compilerOptions")
     if not isinstance(options_value, dict):
-        raise AdoptError("the tsconfig template has no compilerOptions")
+        msg = "the tsconfig template has no compilerOptions"
+        raise AdoptError(msg)
     wanted = {str(k): bool(v) for k, v in options_value.items()}
     current = jsonc(original, "tsconfig.json").get("compilerOptions")
     current = current if isinstance(current, dict) else {}
@@ -353,7 +318,8 @@ def strict_compiler_options(repo: Repo, report: Report, kind: str) -> None:
         return all(repo.run("npx", "tsc", "--noEmit", "-p", p).returncode == 0 for p in projects)
 
     if not compiles():
-        raise AdoptError("tsc fails before any change; fix the build first")
+        msg = "tsc fails before any change; fix the build first"
+        raise AdoptError(msg)
     path.write_text(set_compiler_options(original, todo), encoding="utf-8")
     if compiles():
         report.done.append(f"ts: all {count(len(todo), 'strict compiler option')} on")
@@ -366,9 +332,7 @@ def strict_compiler_options(repo: Repo, report: Report, kind: str) -> None:
     path.write_text(set_compiler_options(original, kept), encoding="utf-8")
     left = sorted(set(todo) - set(kept))
     report.done.append(f"ts: {len(kept)} of {len(todo)} strict compiler options on")
-    report.follow_up.append(
-        f"ts: these compiler options still fail and stay off: {', '.join(left)}"
-    )
+    report.follow_up.append(f"ts: these compiler options still fail and stay off: {', '.join(left)}")
 
 
 # .NET, with analyzers, .editorconfig severities, and dotnet format
@@ -379,23 +343,16 @@ def dotnet_target(repo: Repo) -> str:
     solutions = sorted(p.name for p in repo.path.iterdir() if p.suffix in {".sln", ".slnx"})
     candidates = solutions or repo.tracked("*.csproj")
     if len(candidates) != 1:
-        raise AdoptError(
-            f"found {len(candidates)} solutions or projects at the top; build one solution covering them first"
-        )
+        msg = f"found {len(candidates)} solutions or projects at the top; build one solution covering them first"
+        raise AdoptError(msg)
     return candidates[0]
 
 
 def dotnet(repo: Repo, report: Report) -> None:
     props = repo.path / "Directory.Build.props"
-    keep = not ours(props) and foreign(
-        repo, "Directory.Build.props", "templates/lint/dotnet/Directory.Build.props"
-    )
+    keep = not ours(props) and foreign(repo, "Directory.Build.props", "templates/lint/dotnet/Directory.Build.props")
     if repo.plan:
-        report.done.append(
-            "dotnet: would "
-            + ("keep Directory.Build.props" if keep else "apply Directory.Build.props")
-            + " and add the .editorconfig analyzer block"
-        )
+        report.done.append("dotnet: would " + ("keep Directory.Build.props" if keep else "apply Directory.Build.props") + " and add the .editorconfig analyzer block")
         return
     target = dotnet_target(repo)
     repo.run("dotnet", "build", target, "-nologo", ok=True)
@@ -407,14 +364,8 @@ def dotnet(repo: Repo, report: Report) -> None:
 
     def write(suppressed: set[str]) -> None:
         lines = [f"dotnet_diagnostic.{d}.severity = suggestion" for d in sorted(suppressed)]
-        extra = (
-            "\n# Suppressed at adoption; burn these down in cleanup pull requests.\n"
-            if lines
-            else ""
-        )
-        editorconfig.write_text(
-            replace_block(existing, baseline + extra + "\n".join(lines)), encoding="utf-8"
-        )
+        extra = "\n# Suppressed at adoption; burn these down in cleanup pull requests.\n" if lines else ""
+        editorconfig.write_text(replace_block(existing, baseline + extra + "\n".join(lines)), encoding="utf-8")
 
     write(set())
     repo.run("dotnet", "format", target, "style", "--severity", "warn")
@@ -429,19 +380,13 @@ def dotnet(repo: Repo, report: Report) -> None:
             break
         found = set(DOTNET_DIAGNOSTIC_RE.findall(build.stdout + build.stderr)) - suppressed
         if not found or round_number == SUPPRESS_ROUNDS:
-            raise AdoptError(
-                "dotnet build still fails with nothing left to suppress:\n" + build.stdout[-2000:]
-            )
+            raise AdoptError("dotnet build still fails with nothing left to suppress:\n" + build.stdout[-2000:])
         suppressed |= found
         write(suppressed)
-    report.done.append(
-        f"dotnet: analyzers on, warnings fail the build; {count(len(suppressed), 'rule')} set to suggestion in .editorconfig"
-    )
+    report.done.append(f"dotnet: analyzers on, warnings fail the build; {count(len(suppressed), 'rule')} set to suggestion in .editorconfig")
     report.checks.append(f"dotnet build {target} -nologo")
     if suppressed:
-        report.follow_up.append(
-            "dotnet: a rule set to suggestion is off for new code too; burn these down first"
-        )
+        report.follow_up.append("dotnet: a rule set to suggestion is off for new code too; burn these down first")
 
 
 # Rust, with clippy and rustc lint tables in Cargo.toml
@@ -488,16 +433,12 @@ def rust(repo: Repo, report: Report) -> None:
     outside = original.split(BEGIN, 1)[0]
     if re.search(r"^\[(workspace\.)?lints", outside, re.MULTILINE):
         # The allow-list goes into the lint tables, which cannot be split in two.
-        raise AdoptError(
-            "Cargo.toml already has lint tables, which this script cannot add to; merge "
-            "templates/lint/rust/lints.toml by hand and allow what still warns there"
-        )
+        msg = "Cargo.toml already has lint tables, which this script cannot add to; merge templates/lint/rust/lints.toml by hand and allow what still warns there"
+        raise AdoptError(msg)
     workspace = re.search(r"^\[workspace\]", original, re.MULTILINE) is not None
     prefix = "workspace.lints" if workspace else "lints"
     if repo.plan:
-        report.done.append(
-            f"rust: would add [{prefix}.*] tables to Cargo.toml, fix, and allow the rest"
-        )
+        report.done.append(f"rust: would add [{prefix}.*] tables to Cargo.toml, fix, and allow the rest")
         return
     repo.run("cargo", "clippy", "--all-targets", ok=True)
     if workspace:
@@ -515,20 +456,14 @@ def rust(repo: Repo, report: Report) -> None:
         allowed |= found
         manifest.write_text(replace_block(original, lint_tables(prefix, allowed)), encoding="utf-8")
     repo.run("cargo", "clippy", "--all-targets", "--", "-D", "warnings", ok=True)
-    report.done.append(
-        f"rust: [{prefix}.*] tables added; safe fixes made; {count(len(allowed), 'lint')} allowed"
-    )
+    report.done.append(f"rust: [{prefix}.*] tables added; safe fixes made; {count(len(allowed), 'lint')} allowed")
     report.checks.append("cargo clippy --all-targets -- -D warnings")
     if allowed:
-        report.follow_up.append(
-            "rust: an allowed lint is off for new code too; burn these down first"
-        )
+        report.follow_up.append("rust: an allowed lint is off for new code too; burn these down first")
 
 
 def join_workspace_lints(repo: Repo) -> None:
-    meta = json.loads(
-        repo.run("cargo", "metadata", "--no-deps", "--format-version", "1", ok=True).stdout
-    )
+    meta = json.loads(repo.run("cargo", "metadata", "--no-deps", "--format-version", "1", ok=True).stdout)
     root = (repo.path / "Cargo.toml").resolve()
     for package in meta.get("packages", []):
         member = Path(package["manifest_path"]).resolve()
@@ -557,12 +492,7 @@ def detect(repo: Repo) -> list[str]:
     return found
 
 
-ADOPT: dict[str, Callable[[Repo, Report], None]] = {
-    "python": python,
-    "ts": typescript,
-    "dotnet": dotnet,
-    "rust": rust,
-}
+ADOPT: dict[str, Callable[[Repo, Report], None]] = {"python": python, "ts": typescript, "dotnet": dotnet, "rust": rust}
 
 
 def decide_format(mode: str, path: Path, report: Report) -> bool:
@@ -570,52 +500,30 @@ def decide_format(mode: str, path: Path, report: Report) -> bool:
         return mode == "yes"
     count = open_pull_requests(path)
     if count is None:
-        report.skipped.append(
-            "formatters: could not count open pull requests through agent-cli; not formatting"
-        )
+        report.skipped.append("formatters: could not count open pull requests through agent-cli; not formatting")
         return False
     if count:
-        report.skipped.append(
-            f"formatters: {count} open pull requests; format in a later pull request"
-        )
+        report.skipped.append(f"formatters: {count} open pull requests; format in a later pull request")
         return False
     return True
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "repo", nargs="?", type=Path, default=Path.cwd(), help="default: the current directory"
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("repo", nargs="?", type=Path, default=Path.cwd(), help="default: the current directory")
     parser.add_argument("--only", help=f"comma-separated subset of {', '.join(ECOSYSTEMS)}")
-    parser.add_argument(
-        "--format",
-        choices=("auto", "yes", "no"),
-        default="auto",
-        help="auto: only with no open PRs",
-    )
+    parser.add_argument("--format", choices=("auto", "yes", "no"), default="auto", help="auto: only with no open PRs")
     parser.add_argument("--plan", action="store_true", help="say what would happen; change nothing")
-    parser.add_argument(
-        "--keep-config",
-        action="store_true",
-        help="keep lint configs the repository already has; still fix and suppress",
-    )
+    parser.add_argument("--keep-config", action="store_true", help="keep lint configs the repository already has; still fix and suppress")
     parser.add_argument("--allow-dirty", action="store_true", help="run on uncommitted changes")
     args = parser.parse_args(argv)
     path = args.repo.expanduser().resolve()
-    status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=path, capture_output=True, text=True, check=False
-    )
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=path, capture_output=True, text=True, check=False)
     if status.returncode != 0:
         print(f"adopt_lint.py: {path} is not a git repository", file=sys.stderr)
         return 2
     if status.stdout.strip() and not (args.allow_dirty or args.plan):
-        print(
-            "adopt_lint.py: the working tree has changes; commit or stash them first",
-            file=sys.stderr,
-        )
+        print("adopt_lint.py: the working tree has changes; commit or stash them first", file=sys.stderr)
         return 2
     report = Report()
     format_allowed = False if args.plan else decide_format(args.format, path, report)
@@ -628,10 +536,7 @@ def main(argv: list[str]) -> int:
             parser.error(f"unknown ecosystems: {', '.join(sorted(unknown))}")
         found = [e for e in found if e in only]
     if not found:
-        print(
-            "adopt_lint.py: found no Python, TypeScript, .NET, or Rust code to lint",
-            file=sys.stderr,
-        )
+        print("adopt_lint.py: found no Python, TypeScript, .NET, or Rust code to lint", file=sys.stderr)
         return 1
     for ecosystem in found:
         try:
@@ -643,11 +548,7 @@ def main(argv: list[str]) -> int:
 
 
 def print_report(report: Report) -> None:
-    for title, lines in (
-        ("Done", report.done),
-        ("Skipped", report.skipped),
-        ("Follow up", report.follow_up),
-    ):
+    for title, lines in (("Done", report.done), ("Skipped", report.skipped), ("Follow up", report.follow_up)):
         if lines:
             print(f"{title}:")
             print("\n".join(f"  - {line}" for line in lines))

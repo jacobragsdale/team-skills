@@ -101,18 +101,11 @@ def unlink_all(dest: Path, *, dry_run: bool) -> list[str]:
 
 def windows_skills_dir() -> Path:
     try:
-        profile = subprocess.run(
-            ["cmd.exe", "/c", "echo %USERPROFILE%"],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd="/mnt/c",
-        ).stdout.strip()
-        unix = subprocess.run(
-            ["wslpath", "-u", profile], capture_output=True, text=True, check=True
-        ).stdout.strip()
+        profile = subprocess.run(["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True, text=True, check=True, cwd="/mnt/c").stdout.strip()
+        unix = subprocess.run(["wslpath", "-u", profile], capture_output=True, text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError) as err:
-        raise InstallError(f"cannot find the Windows profile from WSL: {err}") from err
+        msg = f"cannot find the Windows profile from WSL: {err}"
+        raise InstallError(msg) from err
     return Path(unix) / ".agents" / "skills"
 
 
@@ -144,25 +137,15 @@ def copy_all(dest: Path, *, dry_run: bool, remove: bool) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--uninstall", action="store_true", help="remove what this installed")
     parser.add_argument("--windows", action="store_true", help="also copy to the Windows profile")
     parser.add_argument("--force", action="store_true", help="replace links pointing elsewhere")
     parser.add_argument("--dry-run", action="store_true", help="report only; change nothing")
-    parser.add_argument(
-        "--dir",
-        type=Path,
-        default=Path.home() / ".agents" / "skills",
-        help="where to link the skills (default: ~/.agents/skills)",
-    )
+    parser.add_argument("--dir", type=Path, default=Path.home() / ".agents" / "skills", help="where to link the skills (default: ~/.agents/skills)")
     args = parser.parse_args(argv)
     try:
-        if args.uninstall:
-            report = unlink_all(args.dir, dry_run=args.dry_run)
-        else:
-            report = link_all(args.dir, force=args.force, dry_run=args.dry_run)
+        report = unlink_all(args.dir, dry_run=args.dry_run) if args.uninstall else link_all(args.dir, force=args.force, dry_run=args.dry_run)
         if args.windows:
             report += copy_all(windows_skills_dir(), dry_run=args.dry_run, remove=args.uninstall)
     except (InstallError, OSError) as err:

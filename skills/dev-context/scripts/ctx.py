@@ -76,11 +76,10 @@ class Environment:
 
 
 def repo_file() -> Path:
-    done = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False
-    )
+    done = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False)
     if done.returncode != 0:
-        raise ContextError("not inside a git repository; pass --file")
+        msg = "not inside a git repository; pass --file"
+        raise ContextError(msg)
     return Path(done.stdout.strip()) / "docs" / "app-context.md"
 
 
@@ -88,7 +87,8 @@ def toml_block(markdown: str, path: Path) -> str:
     lines = markdown.splitlines()
     start = next((i for i, line in enumerate(lines) if HEADING_RE.match(line)), None)
     if start is None:
-        raise ContextError(f"{path} has no `## Environments` section")
+        msg = f"{path} has no `## Environments` section"
+        raise ContextError(msg)
     block: list[str] | None = None
     for line in lines[start + 1 :]:
         if block is None:
@@ -101,8 +101,10 @@ def toml_block(markdown: str, path: Path) -> str:
         else:
             block.append(line)
     if block is not None:
-        raise ContextError(f"{path}: the toml block under `## Environments` is never closed")
-    raise ContextError(f"{path}: `## Environments` holds no ```toml block")
+        msg = f"{path}: the toml block under `## Environments` is never closed"
+        raise ContextError(msg)
+    msg = f"{path}: `## Environments` holds no ```toml block"
+    raise ContextError(msg)
 
 
 def scalar_or_names(value: object, where: str) -> Scalar | list[str]:
@@ -110,24 +112,28 @@ def scalar_or_names(value: object, where: str) -> Scalar | list[str]:
         return value
     if isinstance(value, list) and all(isinstance(v, str) for v in value):
         return [str(v) for v in value]
-    raise ContextError(f"{where} must be a text, a number, a boolean, or a list of texts")
+    msg = f"{where} must be a text, a number, a boolean, or a list of texts"
+    raise ContextError(msg)
 
 
 def parse(source: str, path: Path) -> list[Environment]:
     try:
         data = tomllib.loads(source)
     except tomllib.TOMLDecodeError as err:
-        raise ContextError(f"{path}: the Environments TOML does not parse: {err}") from err
+        msg = f"{path}: the Environments TOML does not parse: {err}"
+        raise ContextError(msg) from err
     envs = []
     for env_name, env_value in data.items():
         if not isinstance(env_value, dict):
-            raise ContextError(f"{path}: `{env_name}` must be a table, such as [{env_name}]")
+            msg = f"{path}: `{env_name}` must be a table, such as [{env_name}]"
+            raise ContextError(msg)
         facts: dict[str, Scalar | list[str]] = {}
         domains = []
         for key, value in env_value.items():
             where = f"{path}: {env_name}.{key}"
             if not KEY_RE.match(key):
-                raise ContextError(f"{where}: use lowercase letters, digits, - and _")
+                msg = f"{where}: use lowercase letters, digits, - and _"
+                raise ContextError(msg)
             if not isinstance(value, dict):
                 facts[key] = scalar_or_names(value, where)
                 continue
@@ -136,7 +142,8 @@ def parse(source: str, path: Path) -> list[Environment]:
             for flag, flag_value in value.items():
                 inner = f"{where}.{flag}"
                 if not KEY_RE.match(flag):
-                    raise ContextError(f"{inner}: use lowercase letters, digits, - and _")
+                    msg = f"{inner}: use lowercase letters, digits, - and _"
+                    raise ContextError(msg)
                 checked = scalar_or_names(flag_value, inner)
                 if isinstance(checked, list):
                     names[flag] = checked
@@ -145,7 +152,8 @@ def parse(source: str, path: Path) -> list[Environment]:
             domains.append(Domain(key, flags, names))
         envs.append(Environment(env_name, facts, domains))
     if not envs:
-        raise ContextError(f"{path}: the Environments TOML names no environment")
+        msg = f"{path}: the Environments TOML names no environment"
+        raise ContextError(msg)
     return envs
 
 
@@ -153,7 +161,8 @@ def load(path: Path) -> list[Environment]:
     try:
         markdown = path.read_text(encoding="utf-8")
     except FileNotFoundError as err:
-        raise ContextError(f"{path} does not exist; /dev-context writes it") from err
+        msg = f"{path} does not exist; /dev-context writes it"
+        raise ContextError(msg) from err
     return parse(toml_block(markdown, path), path)
 
 
@@ -173,9 +182,7 @@ def render(env: Environment, only: str | None) -> str:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--env", help="the environment to print, such as qa")
     action.add_argument("--list", action="store_true", help="list the environments")
@@ -206,11 +213,7 @@ def main(argv: list[str]) -> int:
         return 4
     if args.json:
         domains = [d for d in env.domains if args.domain in (None, d.name)]
-        payload = {
-            "env": env.name,
-            "facts": env.facts if args.domain is None else {},
-            "domains": {d.name: {"flags": d.flags, "names": d.names} for d in domains},
-        }
+        payload = {"env": env.name, "facts": env.facts if args.domain is None else {}, "domains": {d.name: {"flags": d.flags, "names": d.names} for d in domains}}
         json.dump(payload, sys.stdout, indent=1)
         print()
     else:

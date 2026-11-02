@@ -43,7 +43,8 @@ class Copy:
 
 def strings(value: object, where: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-        raise SyncError(f"{where} must be a list of texts")
+        msg = f"{where} must be a list of texts"
+        raise SyncError(msg)
     return [str(v) for v in value]
 
 
@@ -52,25 +53,31 @@ def copies(root: Path) -> list[Copy]:
     try:
         data = tomllib.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as err:
-        raise SyncError(f"{manifest}: {err}") from err
+        msg = f"{manifest}: {err}"
+        raise SyncError(msg) from err
     entries = data.get("copy")
     if not isinstance(entries, list):
-        raise SyncError(f"{manifest}: expected [[copy]] tables")
+        msg = f"{manifest}: expected [[copy]] tables"
+        raise SyncError(msg)
     out = []
     for index, entry in enumerate(entries, 1):
         where = f"{manifest}: copy #{index}"
         if not isinstance(entry, dict):
-            raise SyncError(f"{where} must be a table")
+            msg = f"{where} must be a table"
+            raise SyncError(msg)
         source, to = entry.get("from"), entry.get("to")
         if not isinstance(source, str) or not isinstance(to, str):
-            raise SyncError(f"{where} needs `from` and `to`")
+            msg = f"{where} needs `from` and `to`"
+            raise SyncError(msg)
         source_path = root / source
         if not source_path.is_file():
-            raise SyncError(f"{where}: {source} does not exist")
+            msg = f"{where}: {source} does not exist"
+            raise SyncError(msg)
         for skill in strings(entry.get("skills"), f"{where}: skills"):
             skill_dir = root / "skills" / skill
             if not (skill_dir / "SKILL.md").is_file():
-                raise SyncError(f"{where}: skills/{skill}/SKILL.md does not exist")
+                msg = f"{where}: skills/{skill}/SKILL.md does not exist"
+                raise SyncError(msg)
             out.append(Copy(source_path, skill_dir / to))
     return out
 
@@ -80,9 +87,7 @@ def drifted(copy: Copy) -> bool:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="report drift; change nothing")
     args = parser.parse_args(argv)
     try:

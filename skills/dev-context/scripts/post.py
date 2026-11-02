@@ -59,6 +59,7 @@ import tomllib
 COMMENT_CAP = 600
 DESCRIPTION_CAP = 2000
 TITLE_CAP = 120
+HOURS_TOLERANCE = 1e-9  # float slack when checking that hours are whole blocks and fit the day
 SKILL_RE = re.compile(r"^dev-[a-z0-9]+(-[a-z0-9]+)*$")
 FOOTER_RE = re.compile(r"\n*_?Agent-written via /[a-z0-9-]+_?\s*$")
 # ADO's state categories that close or remove an item. A person moves an item there.
@@ -86,66 +87,71 @@ class Text:
     body: str
 
     @classmethod
-    def build(
-        cls, raw: str, *, skill: str, cap: int, kind: str, long: bool, markdown: bool
-    ) -> Text:
+    def build(cls, raw: str, *, skill: str, cap: int | None, kind: str, markdown: bool) -> Text:
+        """`cap` is None when the person asked for a longer write (--long)."""
         text = FOOTER_RE.sub("", raw.strip()).rstrip()
         if not text:
-            raise PostError(f"the {kind} is empty")
-        if not long and len(text) > cap:
-            raise PostError(
-                f"the {kind} is {len(text)} characters and the cap is {cap}. "
-                "Cut it down; pass --long only if the person asked for a longer write."
-            )
+            msg = f"the {kind} is empty"
+            raise PostError(msg)
+        if cap is not None and len(text) > cap:
+            msg = f"the {kind} is {len(text)} characters and the cap is {cap}. Cut it down; pass --long only if the person asked for a longer write."
+            raise PostError(msg)
         footer = f"Agent-written via /{skill}"
         return cls(f"{text}\n\n{f'_{footer}_' if markdown else footer}\n")
 
 
 def read_text(value: str | None, file: Path | None) -> str:
     if file is not None and value is not None:
-        raise PostError("give the text or --file, not both")
+        msg = "give the text or --file, not both"
+        raise PostError(msg)
     if file == Path("-"):
         return sys.stdin.read()
     if file is not None:
         try:
             return file.read_text(encoding="utf-8")
         except OSError as err:
-            raise PostError(f"cannot read {file}: {err.strerror}") from err
+            msg = f"cannot read {file}: {err.strerror}"
+            raise PostError(msg) from err
     if value == "-":
         return sys.stdin.read()
     if value is None:
-        raise PostError("give the text, - for stdin, or --file")
+        msg = "give the text, - for stdin, or --file"
+        raise PostError(msg)
     return value
 
 
 def check_title(title: str) -> str:
     title = title.strip()
     if not title:
-        raise PostError("the title is empty")
+        msg = "the title is empty"
+        raise PostError(msg)
     if len(title) > TITLE_CAP:
-        raise PostError(f"the title is {len(title)} characters and the cap is {TITLE_CAP}")
+        msg = f"the title is {len(title)} characters and the cap is {TITLE_CAP}"
+        raise PostError(msg)
     return title
 
 
 def agent_cli() -> str:
     found = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
     if not found:
-        raise PostError("agent-cli is not on PATH; install it, or set AGENT_CLI", EXIT_SETUP)
+        msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
+        raise PostError(msg, EXIT_SETUP)
     return found
 
 
 def read(command: list[str]) -> dict[str, object]:
-    done = subprocess.run(
-        [agent_cli(), "ado", *command], capture_output=True, text=True, check=False
-    )
+    done = subprocess.run([agent_cli(), "ado", *command], capture_output=True, text=True, check=False)
     if done.returncode != 0:
-        raise PostError(f"agent-cli ado {' '.join(command)} failed:\n{done.stderr.strip()}", 1)
+        msg = f"agent-cli ado {' '.join(command)} failed:\n{done.stderr.strip()}"
+        raise PostError(msg, 1)
     try:
         value = json.loads(done.stdout)
     except json.JSONDecodeError as err:
-        raise PostError(f"agent-cli ado {' '.join(command)} printed no JSON: {err}", 1) from err
+        msg = f"agent-cli ado {' '.join(command)} printed no JSON: {err}"
+        raise PostError(msg, 1) from err
     if not isinstance(value, dict):
-        raise PostError(f"agent-cli ado {' '.join(command)} printed no JSON object", 1)
+        msg = f"agent-cli ado {' '.join(command)} printed no JSON object"
+        raise PostError(msg, 1)
     return value
 
 
@@ -160,7 +166,8 @@ def state_category(item_id: str, state: str) -> str:
             return str(entry.get("category"))
         if isinstance(entry, dict):
             names.append(str(entry.get("name")))
-    raise PostError(f"{item_type} has no state {state!r}; its states are {', '.join(names)}")
+    msg = f"{item_type} has no state {state!r}; its states are {', '.join(names)}"
+    raise PostError(msg)
 
 
 def has_field(item_id: str, ref: str) -> bool:
@@ -172,7 +179,8 @@ def has_field(item_id: str, ref: str) -> bool:
 
 def hours_value(value: float, flag: str) -> str:
     if value < 0:
-        raise PostError(f"{flag} cannot be negative")
+        msg = f"{flag} cannot be negative"
+        raise PostError(msg)
     return f"{value:g}"
 
 
@@ -184,8 +192,10 @@ def team_config() -> dict[str, object]:
             try:
                 return tomllib.loads(path.read_text(encoding="utf-8"))
             except tomllib.TOMLDecodeError as err:
-                raise PostError(f"{path}: {err}", EXIT_SETUP) from err
-    raise PostError("this skill has no assets/team.toml; tags and time need it", EXIT_SETUP)
+                msg = f"{path}: {err}"
+                raise PostError(msg, EXIT_SETUP) from err
+    msg = "this skill has no assets/team.toml; tags and time need it"
+    raise PostError(msg, EXIT_SETUP)
 
 
 def section(config: dict[str, object], name: str) -> dict[str, object]:
@@ -223,24 +233,21 @@ class TimeLog:
         day = raw.get("day_hours", 8)
         block = raw.get("block_hours", 1)
         if not isinstance(day, int | float) or not isinstance(block, int | float) or block <= 0:
-            raise PostError(
-                "team.toml [timelog]: day_hours and block_hours are numbers", EXIT_SETUP
-            )
+            msg = "team.toml [timelog]: day_hours and block_hours are numbers"
+            raise PostError(msg, EXIT_SETUP)
         return cls(commands, names, float(day), float(block))
 
     def command(self, verb: str, **values: str) -> list[str]:
         template = self.commands[verb]
         if not template:
-            raise PostError(
-                f"time logging is not set up: team.toml [timelog] has no `{verb}` command yet."
-                " docs/porting.md says how to fill it in.",
-                EXIT_SETUP,
-            )
+            msg = f"time logging is not set up: team.toml [timelog] has no `{verb}` command yet. docs/porting.md says how to fill it in."
+            raise PostError(msg, EXIT_SETUP)
         out = []
         for arg in template:
+            filled = arg
             for key, value in values.items():
-                arg = arg.replace("{" + key + "}", value)
-            out.append(arg)
+                filled = filled.replace("{" + key + "}", value)
+            out.append(filled)
         return out
 
     def entries(self, day: date) -> list[dict[str, object]]:
@@ -249,13 +256,16 @@ class TimeLog:
         argv = self.command("list", person="@me", since=when, until=when)
         done = subprocess.run([agent_cli(), *argv], capture_output=True, text=True, check=False)
         if done.returncode != 0:
-            raise PostError(f"agent-cli {' '.join(argv)} failed:\n{done.stderr.strip()}", 1)
+            msg = f"agent-cli {' '.join(argv)} failed:\n{done.stderr.strip()}"
+            raise PostError(msg, 1)
         try:
             rows = json.loads(done.stdout)
         except json.JSONDecodeError as err:
-            raise PostError(f"agent-cli {' '.join(argv)} printed no JSON: {err}", 1) from err
+            msg = f"agent-cli {' '.join(argv)} printed no JSON: {err}"
+            raise PostError(msg, 1) from err
         if not isinstance(rows, list):
-            raise PostError(f"agent-cli {' '.join(argv)} printed no JSON list", 1)
+            msg = f"agent-cli {' '.join(argv)} printed no JSON list"
+            raise PostError(msg, 1)
         out = []
         for row in rows:
             if not isinstance(row, dict):
@@ -267,18 +277,15 @@ class TimeLog:
 
     def check_hours(self, hours: float) -> str:
         blocks = hours / self.block_hours
-        if hours < self.block_hours or abs(blocks - round(blocks)) > 1e-9:
-            raise PostError(
-                f"{hours:g} h is not a whole number of {self.block_hours:g} h blocks, at least one"
-            )
+        if hours < self.block_hours or abs(blocks - round(blocks)) > HOURS_TOLERANCE:
+            msg = f"{hours:g} h is not a whole number of {self.block_hours:g} h blocks, at least one"
+            raise PostError(msg)
         return f"{hours:g}"
 
     def check_day(self, total: float, day: date) -> None:
-        if total > self.day_hours + 1e-9:
-            raise PostError(
-                f"{day.isoformat()} would hold {total:g} h; a day holds {self.day_hours:g} h,"
-                " no more"
-            )
+        if total > self.day_hours + HOURS_TOLERANCE:
+            msg = f"{day.isoformat()} would hold {total:g} h; a day holds {self.day_hours:g} h, no more"
+            raise PostError(msg)
 
 
 def logged(entries: list[dict[str, object]]) -> float:
@@ -291,7 +298,8 @@ def logged(entries: list[dict[str, object]]) -> float:
             try:
                 total += float(hours)
             except ValueError as err:
-                raise PostError(f"a time entry's hours are not a number: {hours!r}", 1) from err
+                msg = f"a time entry's hours are not a number: {hours!r}"
+                raise PostError(msg, 1) from err
     return total
 
 
@@ -299,7 +307,8 @@ def own_entry(entries: list[dict[str, object]], entry_id: str, day: date) -> dic
     for entry in entries:
         if str(entry.get("id")) == entry_id:
             return entry
-    raise PostError(f"entry {entry_id} is not one of your entries on {day.isoformat()}")
+    msg = f"entry {entry_id} is not one of your entries on {day.isoformat()}"
+    raise PostError(msg)
 
 
 def run(command: list[str], *, dry_run: bool) -> int:
@@ -323,14 +332,7 @@ class Writer:
 
     def text_file(self, name: str, *, cap: int, kind: str) -> str:
         raw = read_text(getattr(self.args, "text", None), self.args.file)
-        text = Text.build(
-            raw,
-            skill=self.args.skill,
-            cap=cap,
-            kind=kind,
-            long=self.args.long,
-            markdown=self.args.verb.startswith("pr-"),
-        )
+        text = Text.build(raw, skill=self.args.skill, cap=None if self.args.long else cap, kind=kind, markdown=self.args.verb.startswith("pr-"))
         path = self.scratch / name
         path.write_text(text.body, encoding="utf-8")
         return str(path)
@@ -340,29 +342,21 @@ class Writer:
         return ["workitem", "comment", self.args.id, "--text-file", path]
 
     def update(self) -> list[str]:
-        changes = (
-            self.args.state,
-            self.args.assignee,
-            self.args.iteration,
-            self.args.remaining,
-            self.args.estimate,
-        )
+        changes = (self.args.state, self.args.assignee, self.args.iteration, self.args.remaining, self.args.estimate)
         if all(c is None for c in changes) and not self.args.add_tag and not self.args.remove_tag:
-            raise PostError(
-                "give --state, --assignee, --iteration, --remaining, --estimate, or a tag"
-            )
+            msg = "give --state, --assignee, --iteration, --remaining, --estimate, or a tag"
+            raise PostError(msg)
         command = ["workitem", "update", self.args.id]
         if self.args.state is not None:
             category = state_category(self.args.id, self.args.state)
             if category in CLOSING_CATEGORIES:
-                raise PostError(
-                    f"{self.args.state!r} is a {category} state, which closes the item;"
-                    " a person does that"
-                )
+                msg = f"{self.args.state!r} is a {category} state, which closes the item; a person does that"
+                raise PostError(msg)
             command += ["--state", self.args.state]
         if self.args.assignee is not None:
             if self.args.assignee != "@me":
-                raise PostError("a skill assigns work only to @me; ask the person to reassign")
+                msg = "a skill assigns work only to @me; ask the person to reassign"
+                raise PostError(msg)
             command += ["--assignee", "@me"]
         if self.args.iteration is not None:
             command += ["--iteration", self.args.iteration]
@@ -385,9 +379,8 @@ class Writer:
         allowed = settable_tags()
         for tag in [*self.args.add_tag, *self.args.remove_tag]:
             if tag not in allowed:
-                raise PostError(
-                    f"{tag!r} is not a tag a skill may set; team.toml names {sorted(allowed)}"
-                )
+                msg = f"{tag!r} is not a tag a skill may set; team.toml names {sorted(allowed)}"
+                raise PostError(msg)
         item = read(["workitem", "get", self.args.id, "--comments", "0", "--fields", "tags"])
         current = item.get("tags")
         tags = [str(t) for t in current] if isinstance(current, list) else []
@@ -418,14 +411,7 @@ class Writer:
             command += ["--description-file", path]
         if self.args.criteria_file is not None:
             raw = read_text(None, self.args.criteria_file)
-            criteria = Text.build(
-                raw,
-                skill=self.args.skill,
-                cap=DESCRIPTION_CAP,
-                kind="acceptance criteria",
-                long=self.args.long,
-                markdown=False,
-            )
+            criteria = Text.build(raw, skill=self.args.skill, cap=None if self.args.long else DESCRIPTION_CAP, kind="acceptance criteria", markdown=False)
             path = self.scratch / "criteria.md"
             path.write_text(criteria.body, encoding="utf-8")
             command += ["--acceptance-criteria-file", str(path)]
@@ -490,9 +476,7 @@ def text_args(parser: argparse.ArgumentParser) -> None:
 
 
 def parse(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--skill", required=True, help="the skill writing, e.g. dev-finish")
     parser.add_argument("--dry-run", action="store_true", help="show the request only")
     parser.add_argument("--long", action="store_true", help="lift the cap; only on request")
@@ -502,17 +486,13 @@ def parse(argv: list[str]) -> argparse.Namespace:
     p.add_argument("id")
     text_args(p)
 
-    p = verbs.add_parser(
-        "update", help="set a work item's state, sprint, hours, or team tags, or assign it to @me"
-    )
+    p = verbs.add_parser("update", help="set a work item's state, sprint, hours, or team tags, or assign it to @me")
     p.add_argument("id")
     p.add_argument("--state")
     p.add_argument("--assignee", help="only @me")
     p.add_argument("--iteration", help="the sprint's path, as sprint get prints it")
     p.add_argument("--remaining", type=float, help="Remaining Work, in hours")
-    p.add_argument(
-        "--estimate", type=float, help="Original Estimate, in hours; sets Remaining Work too"
-    )
+    p.add_argument("--estimate", type=float, help="Original Estimate, in hours; sets Remaining Work too")
     p.add_argument("--add-tag", action="append", default=[], help="a team tag from team.toml")
     p.add_argument("--remove-tag", action="append", default=[], help="a team tag from team.toml")
     p.add_argument("--if-rev", type=int, help="refuse unless the item is still at this rev")

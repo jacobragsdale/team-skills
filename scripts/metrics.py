@@ -63,37 +63,45 @@ class MetricsError(Exception):
 def agent_cli(*args: str) -> object:
     binary = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
     if not binary:
-        raise MetricsError("agent-cli is not on PATH; install it, or set AGENT_CLI")
+        msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
+        raise MetricsError(msg)
     done = subprocess.run([binary, "ado", *args], capture_output=True, text=True, check=False)
     if done.returncode != 0:
-        raise MetricsError(f"agent-cli ado {' '.join(args)} failed:\n{done.stderr.strip()}")
+        msg = f"agent-cli ado {' '.join(args)} failed:\n{done.stderr.strip()}"
+        raise MetricsError(msg)
     try:
         return json.loads(done.stdout)
     except json.JSONDecodeError as err:
-        raise MetricsError(f"agent-cli ado {' '.join(args)} printed no JSON: {err}") from err
+        msg = f"agent-cli ado {' '.join(args)} printed no JSON: {err}"
+        raise MetricsError(msg) from err
 
 
 def rows(value: object, what: str) -> list[dict[str, object]]:
     if not isinstance(value, list) or not all(isinstance(r, dict) for r in value):
-        raise MetricsError(f"{what}: expected a JSON list of objects")
+        msg = f"{what}: expected a JSON list of objects"
+        raise MetricsError(msg)
     return [{str(k): v for k, v in r.items()} for r in value]
 
 
 def obj(value: object, what: str) -> dict[str, object]:
     if not isinstance(value, dict):
-        raise MetricsError(f"{what}: expected a JSON object")
+        msg = f"{what}: expected a JSON object"
+        raise MetricsError(msg)
     return {str(k): v for k, v in value.items()}
 
 
 def stamp(value: object, what: str) -> datetime:
     if not isinstance(value, str):
-        raise MetricsError(f"{what}: expected a timestamp")
+        msg = f"{what}: expected a timestamp"
+        raise MetricsError(msg)
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as err:
-        raise MetricsError(f"{what}: {value!r} is not a timestamp") from err
+        msg = f"{what}: {value!r} is not a timestamp"
+        raise MetricsError(msg) from err
     if parsed.tzinfo is None:
-        raise MetricsError(f"{what}: {value!r} has no time zone")
+        msg = f"{what}: {value!r} has no time zone"
+        raise MetricsError(msg)
     return parsed.astimezone(UTC)
 
 
@@ -102,7 +110,8 @@ def number(row: dict[str, object], key: str, what: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         if isinstance(value, str) and value.isdigit():
             return int(value)
-        raise MetricsError(f"{what}: {key} is not a number")
+        msg = f"{what}: {key} is not a number"
+        raise MetricsError(msg)
     return value
 
 
@@ -123,9 +132,8 @@ def parse_moment(text: str, now: datetime) -> datetime:
     try:
         parsed = datetime.fromisoformat(text)
     except ValueError as err:
-        raise MetricsError(
-            f"{text!r} is not a span such as 7d, a date, or an RFC 3339 time"
-        ) from err
+        msg = f"{text!r} is not a span such as 7d, a date, or an RFC 3339 time"
+        raise MetricsError(msg) from err
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
@@ -146,14 +154,10 @@ class TypeStates:
             name, category = state.get("name"), state.get("category")
             if isinstance(name, str) and isinstance(category, str):
                 by_category.setdefault(category, []).append(name)
-        found = cls(
-            active or by_category.get(ACTIVE_CATEGORY, []),
-            done or by_category.get(DONE_CATEGORY, []),
-        )
+        found = cls(active or by_category.get(ACTIVE_CATEGORY, []), done or by_category.get(DONE_CATEGORY, []))
         if not found.active or not found.done:
-            raise MetricsError(
-                f"{what} has no {ACTIVE_CATEGORY} or {DONE_CATEGORY} states; pass them"
-            )
+            msg = f"{what} has no {ACTIVE_CATEGORY} or {DONE_CATEGORY} states; pass them"
+            raise MetricsError(msg)
         return found
 
 
@@ -189,24 +193,18 @@ class Summary:
         if not hours:
             return cls()
         p85 = hours[max(0, math.ceil(0.85 * len(hours)) - 1)]
-        return cls(
-            count=len(hours),
-            median_hours=round(statistics.median(hours), 1),
-            p85_hours=round(p85, 1),
-            samples=[{"id": key, "hours": round(h, 1)} for key, h in samples],
-        )
+        return cls(count=len(hours), median_hours=round(statistics.median(hours), 1), p85_hours=round(p85, 1), samples=[{"id": key, "hours": round(h, 1)} for key, h in samples])
 
 
 def state_spans(item_id: int) -> list[tuple[str, datetime]]:
     what = f"history of {item_id}"
-    history = obj(
-        agent_cli("history", "get", str(item_id), "--field", "state", "--fields", "states"), what
-    )
+    history = obj(agent_cli("history", "get", str(item_id), "--field", "state", "--fields", "states"), what)
     spans = []
     for state in rows(history.get("states"), what):
         name = state.get("state")
         if not isinstance(name, str):
-            raise MetricsError(f"{what}: a state has no name")
+            msg = f"{what}: a state has no name"
+            raise MetricsError(msg)
         spans.append((name, stamp(state.get("since"), what)))
     return spans
 
@@ -215,17 +213,7 @@ def cycle_time(scope: Scope, since: datetime, until: datetime) -> Summary:
     samples = []
     for item_type, states in scope.states.items():
         window = ["--since", rfc3339(since), "--until", rfc3339(until)]
-        found = agent_cli(
-            "workitem",
-            "list",
-            *scope.list_args(item_type),
-            *repeated("--state", states.done),
-            *window,
-            "--limit",
-            LIST_LIMIT,
-            "--fields",
-            "id",
-        )
+        found = agent_cli("workitem", "list", *scope.list_args(item_type), *repeated("--state", states.done), *window, "--limit", LIST_LIMIT, "--fields", "id")
         for row in rows(found, "finished work items"):
             item_id = number(row, "id", "finished work item")
             spans = state_spans(item_id)
@@ -247,16 +235,7 @@ class Reviews:
 def review_turnaround(scope: Scope, since: datetime, until: datetime) -> Reviews:
     opened: dict[str, tuple[str, datetime]] = {}
     for repo in scope.repos or [None]:
-        args = [
-            "pr",
-            "list",
-            "--status",
-            "all",
-            "--since",
-            rfc3339(since),
-            "--until",
-            rfc3339(until),
-        ]
+        args = ["pr", "list", "--status", "all", "--since", rfc3339(since), "--until", rfc3339(until)]
         args += ["--limit", LIST_LIMIT, "--fields", "id,author,created,is_draft"]
         if repo:
             args += ["--repo", repo]
@@ -264,33 +243,15 @@ def review_turnaround(scope: Scope, since: datetime, until: datetime) -> Reviews
             if pr.get("is_draft") is True:
                 continue
             author = pr.get("author")
-            opened[str(number(pr, "id", "pull request"))] = (
-                author if isinstance(author, str) else "",
-                stamp(pr.get("created"), "pull request created"),
-            )
+            opened[str(number(pr, "id", "pull request"))] = (author if isinstance(author, str) else "", stamp(pr.get("created"), "pull request created"))
     first_vote: dict[str, datetime] = {}
     people_args = ["person", "list", "--limit", LIST_LIMIT, "--fields", "id,name"]
     if scope.team:
         people_args += ["--team", scope.team]
     # activity list takes the sign-in address (id); pull requests name the author.
-    people = {
-        str(p["id"]): str(p.get("name", ""))
-        for p in rows(agent_cli(*people_args), "people")
-        if isinstance(p.get("id"), str)
-    }
+    people = {str(p["id"]): str(p.get("name", "")) for p in rows(agent_cli(*people_args), "people") if isinstance(p.get("id"), str)}
     for address, name in sorted(people.items()):
-        activity = agent_cli(
-            "activity",
-            "list",
-            "--person",
-            address,
-            "--since",
-            rfc3339(since),
-            "--limit",
-            LIST_LIMIT,
-            "--fields",
-            "at,kind,action,id",
-        )
+        activity = agent_cli("activity", "list", "--person", address, "--since", rfc3339(since), "--limit", LIST_LIMIT, "--fields", "at,kind,action,id")
         for event in rows(activity, f"activity of {address}"):
             pr_id = str(event.get("id"))
             if event.get("kind") != "pr" or event.get("action") not in VOTES or pr_id not in opened:
@@ -299,21 +260,9 @@ def review_turnaround(scope: Scope, since: datetime, until: datetime) -> Reviews
                 continue
             at = stamp(event.get("at"), "vote")
             first_vote[pr_id] = min(at, first_vote.get(pr_id, at))
-    samples = [
-        (pr_id, (first_vote[pr_id] - created).total_seconds() / 3600)
-        for pr_id, (_, created) in opened.items()
-        if pr_id in first_vote
-    ]
-    waiting = [
-        (until - created).total_seconds() / 3600
-        for pr_id, (_, created) in opened.items()
-        if pr_id not in first_vote
-    ]
-    return Reviews(
-        turnaround=Summary.of(samples),
-        waiting=len(waiting),
-        oldest_waiting_hours=round(max(waiting), 1) if waiting else None,
-    )
+    samples = [(pr_id, (first_vote[pr_id] - created).total_seconds() / 3600) for pr_id, (_, created) in opened.items() if pr_id in first_vote]
+    waiting = [(until - created).total_seconds() / 3600 for pr_id, (_, created) in opened.items() if pr_id not in first_vote]
+    return Reviews(turnaround=Summary.of(samples), waiting=len(waiting), oldest_waiting_hours=round(max(waiting), 1) if waiting else None)
 
 
 @dataclass
@@ -326,24 +275,12 @@ class Attention:
 def attention(scope: Scope, now: datetime, silent_days: int, stale_days: int) -> Attention:
     items = []
     for item_type, states in scope.states.items():
-        found = agent_cli(
-            "workitem",
-            "list",
-            *scope.list_args(item_type),
-            *repeated("--state", states.active),
-            "--limit",
-            LIST_LIMIT,
-            "--fields",
-            "id",
-        )
+        found = agent_cli("workitem", "list", *scope.list_args(item_type), *repeated("--state", states.active), "--limit", LIST_LIMIT, "--fields", "id")
         items += rows(found, "active work items")
     silent, stale = [], []
     for row in items:
         item_id = number(row, "id", "active work item")
-        detail = obj(
-            agent_cli("workitem", "get", str(item_id), "--comments", "1", "--fields", "comments"),
-            "work item",
-        )
+        detail = obj(agent_cli("workitem", "get", str(item_id), "--comments", "1", "--fields", "comments"), "work item")
         comments = rows(detail.get("comments") or [], f"comments of {item_id}")
         latest = max((stamp(c.get("date"), "comment date") for c in comments), default=None)
         if latest is None or now - latest > timedelta(days=silent_days):
@@ -361,13 +298,12 @@ def team_defaults() -> dict[str, str]:
     except FileNotFoundError:
         return {}
     except tomllib.TOMLDecodeError as err:
-        raise MetricsError(f"{TEAM_FILE}: {err}") from err
+        msg = f"{TEAM_FILE}: {err}"
+        raise MetricsError(msg) from err
     section = config.get("ado")
     if not isinstance(section, dict):
         return {}
-    return {
-        k: v.strip() for k in ("team", "area") if isinstance(v := section.get(k), str) and v.strip()
-    }
+    return {k: v.strip() for k in ("team", "area") if isinstance(v := section.get(k), str) and v.strip()}
 
 
 def summary_rows(result: dict[str, object]) -> list[tuple[str, str, str]]:
@@ -380,27 +316,14 @@ def summary_rows(result: dict[str, object]) -> list[tuple[str, str, str]]:
     work = obj(result["attention"], "attention")
     silent, stale = work["silent"], work["stale"]
     return [
-        (
-            "Cycle time",
-            f"median {hours(cycle['median_hours'])}, p85 {hours(cycle['p85_hours'])}",
-            f"{cycle['count']} finished items",
-        ),
+        ("Cycle time", f"median {hours(cycle['median_hours'])}, p85 {hours(cycle['p85_hours'])}", f"{cycle['count']} finished items"),
         (
             "Review turnaround",
             f"median {hours(turnaround['median_hours'])}, p85 {hours(turnaround['p85_hours'])}",
-            f"{turnaround['count']} pull requests; {reviews['waiting']} still waiting"
-            f" (oldest {hours(reviews['oldest_waiting_hours'])})",
+            f"{turnaround['count']} pull requests; {reviews['waiting']} still waiting (oldest {hours(reviews['oldest_waiting_hours'])})",
         ),
-        (
-            "Silent items",
-            f"{len(silent) if isinstance(silent, list) else silent} of {work['active']} active",
-            f"no comment in {result['silent_days']} days",
-        ),
-        (
-            "Stale items",
-            f"{len(stale) if isinstance(stale, list) else stale} of {work['active']} active",
-            f"in the same state over {result['stale_days']} days",
-        ),
+        ("Silent items", f"{len(silent) if isinstance(silent, list) else silent} of {work['active']} active", f"no comment in {result['silent_days']} days"),
+        ("Stale items", f"{len(stale) if isinstance(stale, list) else stale} of {work['active']} active", f"in the same state over {result['stale_days']} days"),
     ]
 
 
@@ -419,10 +342,7 @@ def render(result: dict[str, object], *, terminal: bool, color: bool) -> str:
         return left + mid.join("─" * (w + 2) for w in widths) + right
 
     def cells(row: tuple[str, str, str], code: str | None) -> str:
-        parts = [
-            " " + (paint(c, code) if code else c) + " " * (w - len(c) + 1)
-            for c, w in zip(row, widths, strict=True)
-        ]
+        parts = [" " + (paint(c, code) if code else c) + " " * (w - len(c) + 1) for c, w in zip(row, widths, strict=True)]
         return "│" + "│".join(parts) + "│"
 
     out = [paint(title, "36"), line("┌", "┬", "┐"), cells(table[0], "1"), line("├", "┼", "┤")]
@@ -432,31 +352,16 @@ def render(result: dict[str, object], *, terminal: bool, color: bool) -> str:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "--since", default="7d", help="window start: 7d, 2w, a date, or RFC 3339 (default 7d)"
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--since", default="7d", help="window start: 7d, 2w, a date, or RFC 3339 (default 7d)")
     parser.add_argument("--until", help="window end (default now)")
     parser.add_argument("--type", action="append", help="work item type, repeatable (default Task)")
-    parser.add_argument(
-        "--active-state",
-        action="append",
-        help="repeatable (default: the type's In Progress states)",
-    )
-    parser.add_argument(
-        "--done-state", action="append", help="repeatable (default: the type's Completed states)"
-    )
+    parser.add_argument("--active-state", action="append", help="repeatable (default: the type's In Progress states)")
+    parser.add_argument("--done-state", action="append", help="repeatable (default: the type's Completed states)")
     parser.add_argument("--area", help="only this area path, children included")
     parser.add_argument("--iteration", help="only this iteration, or @current")
-    parser.add_argument(
-        "--team",
-        help="the team whose people and sprints count (default: team.toml, then [ado] team)",
-    )
-    parser.add_argument(
-        "--repo", action="append", default=[], help="only these repositories' pull requests"
-    )
+    parser.add_argument("--team", help="the team whose people and sprints count (default: team.toml, then [ado] team)")
+    parser.add_argument("--repo", action="append", default=[], help="only these repositories' pull requests")
     parser.add_argument("--silent-days", type=int, default=3)
     parser.add_argument("--stale-days", type=int, default=7)
     parser.add_argument("--log", type=Path, help="append the result to this file as one JSON line")
@@ -469,16 +374,7 @@ def main(argv: list[str]) -> int:
         args.area = args.area or defaults.get("area")
         until = parse_moment(args.until, now) if args.until else now
         since = parse_moment(args.since, until)
-        scope = Scope(
-            states={
-                t: TypeStates.of(t, args.active_state, args.done_state)
-                for t in args.type or ["Task"]
-            },
-            area=args.area,
-            iteration=args.iteration,
-            team=args.team,
-            repos=args.repo,
-        )
+        scope = Scope(states={t: TypeStates.of(t, args.active_state, args.done_state) for t in args.type or ["Task"]}, area=args.area, iteration=args.iteration, team=args.team, repos=args.repo)
         reviews = review_turnaround(scope, since, until)
         result: dict[str, object] = {
             "measured_at": rfc3339(now),

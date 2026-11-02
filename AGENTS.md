@@ -41,7 +41,9 @@ before changing anything. It records the decisions these rules come from.
 ## Scripts
 
 Each script is one file of stdlib-only Python 3.11 or later, with a PEP 723
-header, runnable as `uv run <script>` or `python3 <script>`. Add no
+header, runnable as `uv run <script>` or `python3 <script>`. The scripts pass
+the team's own lint baseline: `ruff.toml` extends `templates/lint/python/`,
+and `validate.py` runs `ruff check` and `ruff format --check`. Add no
 third-party dependencies and no shell scripts. The scripts must run in WSL
 behind a corporate proxy.
 

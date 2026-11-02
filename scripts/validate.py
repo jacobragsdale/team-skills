@@ -35,6 +35,8 @@ import argparse
 import ast
 import os
 import re
+import shutil
+import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -87,7 +89,7 @@ def frontmatter(text: str, where: str, problems: list[str]) -> tuple[dict[str, s
             problems.append(f"{where}: frontmatter line is not `key: value`: {line!r}")
             continue
         key, value = match.groups()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"":
             value = value[1:-1]
         fields[key] = value.strip()
     return fields, "\n".join(lines[end + 1 :])
@@ -131,10 +133,8 @@ def check_skill(skill: Path, problems: list[str]) -> None:
         problems.append(f"{rel(skill)}: has no SKILL.md")
         return
     fields, body = frontmatter((skill / "SKILL.md").read_text(encoding="utf-8"), where, problems)
-    for key in sorted(REQUIRED_KEYS - fields.keys()):
-        problems.append(f"{where}: frontmatter lacks {key}")
-    for key in sorted(fields.keys() - FRONTMATTER_KEYS):
-        problems.append(f"{where}: frontmatter key {key} is not one this repository uses")
+    problems.extend(f"{where}: frontmatter lacks {key}" for key in sorted(REQUIRED_KEYS - fields.keys()))
+    problems.extend(f"{where}: frontmatter key {key} is not one this repository uses" for key in sorted(fields.keys() - FRONTMATTER_KEYS))
     if "name" in fields and fields["name"] != skill.name:
         problems.append(f"{where}: name {fields['name']!r} does not match the folder")
     if fields.get("disable-model-invocation", "true") != "true":
@@ -144,9 +144,7 @@ def check_skill(skill: Path, problems: list[str]) -> None:
     if body.count("\n") > BODY_MAX_LINES:
         problems.append(f"{where}: the body is over {BODY_MAX_LINES} lines")
     check_references(skill, problems)
-    for path in files(skill):
-        if path.suffix in TEXT_SUFFIXES and URL_RE.search(path.read_text(encoding="utf-8")):
-            problems.append(f"{rel(path)}: holds a URL; a skill names no hosts")
+    problems.extend(f"{rel(path)}: holds a URL; a skill names no hosts" for path in files(skill) if path.suffix in TEXT_SUFFIXES and URL_RE.search(path.read_text(encoding="utf-8")))
 
 
 def check_copies(problems: list[str]) -> None:
@@ -164,9 +162,7 @@ def check_copies(problems: list[str]) -> None:
         for skill in entry.get("skills", []):
             target = ROOT / "skills" / str(skill) / str(entry.get("to", ""))
             if not target.is_file() or target.read_bytes() != source.read_bytes():
-                problems.append(
-                    f"{rel(target)}: differs from {rel(source)}; run scripts/sync_shared.py"
-                )
+                problems.append(f"{rel(target)}: differs from {rel(source)}; run scripts/sync_shared.py")
 
 
 def check_script(path: Path, problems: list[str]) -> None:
@@ -198,18 +194,12 @@ def check_script(path: Path, problems: list[str]) -> None:
             names = [node.module]
         else:
             continue
-        for name in names:
-            if name.split(".")[0] not in allowed:
-                problems.append(f"{rel(path)}:{node.lineno}: imports {name}, not the stdlib")
+        problems.extend(f"{rel(path)}:{node.lineno}: imports {name}, not the stdlib" for name in names if name.split(".")[0] not in allowed)
 
 
 def banned_words() -> list[str]:
     configured = os.environ.get("TEAM_SKILLS_BANNED_WORDS")
-    path = (
-        Path(configured)
-        if configured
-        else Path.home() / ".config" / "team-skills" / "banned-words.txt"
-    )
+    path = Path(configured) if configured else Path.home() / ".config" / "team-skills" / "banned-words.txt"
     if not path.is_file():
         return []
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -223,7 +213,7 @@ def check_banned(problems: list[str]) -> None:
     pattern = re.compile(r"\b(" + "|".join(map(re.escape, words)) + r")\b", re.IGNORECASE)
     for folder in ("skills", "shared", "templates"):
         for path in files(ROOT / folder):
-            if path.suffix not in TEXT_SUFFIXES and path.name not in {".editorconfig"}:
+            if path.suffix not in TEXT_SUFFIXES and path.name != ".editorconfig":
                 continue
             if path.name == TEAM_FILE:
                 continue
@@ -241,9 +231,22 @@ def check_repository(problems: list[str]) -> None:
     skills = {p.name for p in (ROOT / "skills").iterdir() if p.is_dir()}
     fixtures = ROOT / "fixtures"
     if fixtures.is_dir():
-        for entry in fixtures.iterdir():
-            if entry.is_dir() and entry.name not in skills:
-                problems.append(f"{rel(entry)}: names no skill in skills/")
+        problems.extend(f"{rel(entry)}: names no skill in skills/" for entry in fixtures.iterdir() if entry.is_dir() and entry.name not in skills)
+
+
+RUFF_PIN = "ruff@0.17.3"  # Matches required-version in templates/lint/python/ruff.toml.
+
+
+def check_lint(problems: list[str]) -> None:
+    """This repository's own Python passes the team's Ruff baseline (ruff.toml extends it)."""
+    ruff = ["ruff"] if shutil.which("ruff") else ["uvx", RUFF_PIN] if shutil.which("uvx") else None
+    if ruff is None:
+        problems.append("ruff is not installed, and neither is uv")
+        return
+    for args, what in ((["check", "--quiet", "."], "ruff check"), (["format", "--check", "--quiet", "."], "ruff format --check")):
+        done = subprocess.run([*ruff, *args], cwd=ROOT, capture_output=True, text=True, check=False)
+        if done.returncode != 0:
+            problems.append(f"{what} fails; run it to see why:\n{(done.stdout + done.stderr).strip()}")
 
 
 def port_markers() -> list[str]:
@@ -261,9 +264,7 @@ def port_markers() -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.parse_args(argv)
     problems: list[str] = []
     skills_dir = ROOT / "skills"
@@ -273,6 +274,7 @@ def main(argv: list[str]) -> int:
     check_copies(problems)
     check_repository(problems)
     check_banned(problems)
+    check_lint(problems)
     ports = port_markers()
     for port in ports:
         print(f"warning: {port}")

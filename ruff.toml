@@ -1,0 +1,12 @@
+# This repository's own Python: the team baseline, plus the exceptions its
+# standalone scripts need. skills/*/scripts are synced copies of shared/scripts,
+# checked through their source.
+extend = "templates/lint/python/ruff.toml"
+extend-exclude = ["skills/*/scripts"]
+
+[lint.per-file-ignores]
+"{scripts,shared/scripts}/*.py" = [
+    "T201",  # These are CLIs; printing their output is the job.
+    "INP001",  # Standalone PEP 723 scripts, not a package.
+    "UP036",  # The version guard turns `python3` on an older interpreter into a clear message.
+]
