@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Measure the team's delivery from Azure DevOps, for the weekly baseline.
+r"""Measure the team's delivery from Azure DevOps, for the weekly baseline.
 
   cycle time        hours from a work item first entering an active state to
                     entering a done state, for items finished in the window
@@ -22,7 +22,7 @@ the summary is a colored table; piped, it is Markdown; --json prints the data.
 
 Examples:
   metrics.py
-  metrics.py --since 14d --area 'web\\orders' --log ~/team-metrics.jsonl
+  metrics.py --since 14d --area 'web\orders' --log ~/team-metrics.jsonl
   metrics.py --type Task --type Bug --json
 """
 
@@ -59,10 +59,11 @@ LIST_LIMIT = "1000"
 
 
 class MetricsError(Exception):
-    pass
+    """Raised when agent-cli fails, or prints data the measures cannot use."""
 
 
 def agent_cli(*args: str) -> object:
+    """Run `agent-cli ado` with the arguments and return its parsed JSON output."""
     binary = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
     if binary is None:
         msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
@@ -79,6 +80,7 @@ def agent_cli(*args: str) -> object:
 
 
 def rows(value: object, what: str) -> list[dict[str, object]]:
+    """Check that agent-cli printed a list of objects; `what` names the data in the error."""
     msg = f"{what}: expected a JSON list of objects"
     if not isinstance(value, list):
         raise MetricsError(msg)
@@ -91,6 +93,7 @@ def rows(value: object, what: str) -> list[dict[str, object]]:
 
 
 def obj(value: object, what: str) -> dict[str, object]:
+    """Check that agent-cli printed an object; `what` names the data in the error."""
     if not isinstance(value, dict):
         msg = f"{what}: expected a JSON object"
         raise MetricsError(msg)
@@ -98,6 +101,7 @@ def obj(value: object, what: str) -> dict[str, object]:
 
 
 def stamp(value: object, what: str) -> datetime:
+    """An ISO 8601 timestamp with a time zone, in UTC; a naive one is an error, not a guess."""
     if not isinstance(value, str):
         msg = f"{what}: expected a timestamp"
         raise MetricsError(msg)
@@ -113,6 +117,7 @@ def stamp(value: object, what: str) -> datetime:
 
 
 def number(row: dict[str, object], key: str, what: str) -> int:
+    """An integer field, accepting the digit strings some agent-cli commands print."""
     value = row.get(key)
     if isinstance(value, bool) or not isinstance(value, int):
         if isinstance(value, str) and value.isdigit():
@@ -123,10 +128,12 @@ def number(row: dict[str, object], key: str, what: str) -> int:
 
 
 def repeated(flag: str, values: list[str]) -> list[str]:
+    """The flag before each value, for an agent-cli option that repeats."""
     return [part for value in values for part in (flag, value)]
 
 
 def rfc3339(moment: datetime) -> str:
+    """The moment in UTC to the second, as agent-cli's --since and --until take it."""
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -146,6 +153,8 @@ def parse_moment(text: str, now: datetime) -> datetime:
 
 @dataclass(frozen=True)
 class TypeStates:
+    """The state names that count as active and as done for one work item type."""
+
     active: list[str]
     done: list[str]
 
@@ -170,6 +179,8 @@ class TypeStates:
 
 @dataclass(frozen=True)
 class Scope:
+    """Which work items and pull requests the measures cover."""
+
     states: dict[str, TypeStates]
     area: str | None
     iteration: str | None
@@ -177,6 +188,7 @@ class Scope:
     repos: list[str]
 
     def list_args(self, item_type: str) -> list[str]:
+        """The `workitem list` filters for one type within the scope."""
         out = ["--type", item_type]
         if self.area is not None:
             out += ["--area", self.area]
@@ -189,6 +201,8 @@ class Scope:
 
 @dataclass
 class Summary:
+    """Hours per sample summarized: count, median, and 85th percentile, with the samples kept."""
+
     count: int = 0
     median_hours: float | None = None
     p85_hours: float | None = None
@@ -196,6 +210,7 @@ class Summary:
 
     @classmethod
     def of(cls, samples: list[tuple[str, float]]) -> Summary:
+        """Summarize (id, hours) samples; an empty list gives a zero count and no percentiles."""
         hours = sorted(h for _, h in samples)
         if not hours:
             return cls()
@@ -204,6 +219,7 @@ class Summary:
 
 
 def state_spans(item_id: int) -> list[tuple[str, datetime]]:
+    """Each state the item entered and when, oldest first."""
     what = f"history of {item_id}"
     history = obj(agent_cli("history", "get", str(item_id), "--field", "state", "--fields", "states"), what)
     spans = []
@@ -217,6 +233,7 @@ def state_spans(item_id: int) -> list[tuple[str, datetime]]:
 
 
 def cycle_time(scope: Scope, since: datetime, until: datetime) -> Summary:
+    """Hours from first active state to last done state, for items that finished in the window."""
     samples = []
     for item_type, states in scope.states.items():
         window = ["--since", rfc3339(since), "--until", rfc3339(until)]
@@ -234,12 +251,15 @@ def cycle_time(scope: Scope, since: datetime, until: datetime) -> Summary:
 
 @dataclass
 class Reviews:
+    """Review turnaround in the window, and the pull requests still waiting for a first vote."""
+
     turnaround: Summary
     waiting: int
     oldest_waiting_hours: float | None
 
 
 def review_turnaround(scope: Scope, since: datetime, until: datetime) -> Reviews:
+    """Hours from opening a non-draft pull request to its first vote by someone other than the author."""
     opened: dict[str, tuple[str, datetime]] = {}
     for repo in scope.repos or [None]:
         args = ["pr", "list", "--status", "all", "--since", rfc3339(since), "--until", rfc3339(until)]
@@ -274,12 +294,15 @@ def review_turnaround(scope: Scope, since: datetime, until: datetime) -> Reviews
 
 @dataclass
 class Attention:
+    """The active work items, and which of them are silent or stale."""
+
     active: int
     silent: list[int]
     stale: list[int]
 
 
 def attention(scope: Scope, now: datetime, silent_days: int, stale_days: int) -> Attention:
+    """Active items with no comment in `silent_days`, and those in one state over `stale_days`."""
     items = []
     for item_type, states in scope.states.items():
         found = agent_cli("workitem", "list", *scope.list_args(item_type), *repeated("--state", states.active), "--limit", LIST_LIMIT, "--fields", "id")
@@ -314,6 +337,8 @@ def team_defaults() -> dict[str, str]:
 
 
 def summary_rows(result: dict[str, object]) -> list[tuple[str, str, str]]:
+    """One (measure, value, over) row per measure in a result, for the table."""
+
     def hours(value: object) -> str:
         return "-" if value is None else f"{value} h"
 
@@ -335,6 +360,7 @@ def summary_rows(result: dict[str, object]) -> list[tuple[str, str, str]]:
 
 
 def render(result: dict[str, object], *, terminal: bool, color: bool) -> str:
+    """The result as a boxed table in a terminal, or as a Markdown table when piped."""
     title = f"Window: {result['since']} to {result['until']}"
     table = [("Measure", "Value", "Over"), *summary_rows(result)]
     if not terminal:
@@ -359,6 +385,7 @@ def render(result: dict[str, object], *, terminal: bool, color: bool) -> str:
 
 
 def main(argv: list[str]) -> int:
+    """Measure the window, print the summary or JSON, and append the result to --log when given."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--since", default="7d", help="window start: 7d, 2w, a date, or RFC 3339 (default 7d)")
     parser.add_argument("--until", help="window end (default now)")

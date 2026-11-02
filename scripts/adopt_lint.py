@@ -68,6 +68,8 @@ class AdoptError(Exception):
 
 @dataclass
 class Report:
+    """What the run changed, skipped, and left to follow up, plus the check command to record."""
+
     done: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     follow_up: list[str] = field(default_factory=list)
@@ -76,12 +78,15 @@ class Report:
 
 @dataclass(frozen=True)
 class Repo:
+    """The repository being adopted, and the choices that apply to every ecosystem in it."""
+
     path: Path
     format_allowed: bool
     plan: bool
     keep_config: bool
 
     def run(self, *command: str, ok: bool = False) -> subprocess.CompletedProcess[str]:
+        """Run a command in the repository; with `ok`, raise with the output's last lines when it fails."""
         done = subprocess.run(list(command), cwd=self.path, capture_output=True, text=True, check=False)
         if ok and done.returncode != 0:
             tail = (done.stdout + done.stderr).strip().splitlines()[-15:]
@@ -89,10 +94,12 @@ class Repo:
         return done
 
     def text(self, name: str) -> str:
+        """A file at the repository root, or "" when it is missing."""
         path = self.path / name
         return path.read_text(encoding="utf-8") if path.is_file() else ""
 
     def tracked(self, *patterns: str) -> list[str]:
+        """The files git tracks that match the patterns, relative to the root."""
         return self.run("git", "ls-files", "--", *patterns).stdout.split()
 
 
@@ -100,6 +107,7 @@ class Repo:
 
 
 def count(n: int, noun: str) -> str:
+    """`n` and the noun, plural unless `n` is 1."""
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
@@ -117,6 +125,7 @@ def foreign(repo: Repo, what: str, template: str) -> bool:
 
 
 def copy_template(repo: Repo, source: str, target: str) -> None:
+    """Copy a file from templates/lint/ to the repository root; nothing under --plan."""
     if not repo.plan:
         shutil.copyfile(TEMPLATES / source, repo.path / target)
 
@@ -135,6 +144,7 @@ def replace_block(text: str, block: str) -> str:
 
 
 def tool(name: str) -> list[str]:
+    """The command that runs a Python tool: from PATH, or else through uvx."""
     if shutil.which(name) is not None:
         return [name]
     if shutil.which("uvx") is not None:
@@ -143,8 +153,18 @@ def tool(name: str) -> list[str]:
     raise AdoptError(msg)
 
 
+def executable(name: str) -> str:
+    """The full path of `name` on PATH, so a process never starts from a partial path."""
+    found = shutil.which(name)
+    if found is None:
+        msg = f"{name} is not on PATH"
+        raise AdoptError(msg)
+    return found
+
+
 def open_pull_requests(path: Path) -> int | None:
-    remote = subprocess.run(["git", "remote", "get-url", "origin"], cwd=path, capture_output=True, text=True, check=False)
+    """How many active pull requests origin's repository has, or None when agent-cli cannot say."""
+    remote = subprocess.run([executable("git"), "remote", "get-url", "origin"], cwd=path, capture_output=True, text=True, check=False)
     agent_cli = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
     if remote.returncode != 0 or agent_cli is None:
         return None
@@ -163,6 +183,7 @@ def open_pull_requests(path: Path) -> int | None:
 
 
 def python(repo: Repo, report: Report) -> None:
+    """Adopt ruff and ty: apply the configs, make the safe fixes, and suppress the rest line by line."""
     pyproject = tomllib.loads(repo.text("pyproject.toml") or "")
     tools = pyproject.get("tool", {})
     kept = set()
@@ -224,6 +245,7 @@ def strip_jsonc(text: str) -> str:
 
 
 def jsonc(text: str, where: str) -> dict[str, object]:
+    """Parse JSON with comments and trailing commas, as tsconfig and package.json allow."""
     try:
         value: object = json.loads(strip_jsonc(text))
     except json.JSONDecodeError as err:
@@ -254,6 +276,7 @@ def set_compiler_options(text: str, options: dict[str, bool]) -> str:
 
 
 def node_version(repo: Repo, package: str) -> tuple[int, ...] | None:
+    """The installed version of an npm package as numbers, or None when node_modules lacks it."""
     manifest = repo.path / "node_modules" / package / "package.json"
     if not manifest.is_file():
         return None
@@ -262,6 +285,7 @@ def node_version(repo: Repo, package: str) -> tuple[int, ...] | None:
 
 
 def typescript(repo: Repo, report: Report) -> None:
+    """Adopt ESLint and the strict compiler options, suppressing what remains in eslint-suppressions.json."""
     package = jsonc(repo.text("package.json"), "package.json")
     deps: dict[str, object] = {}
     for key in ("dependencies", "devDependencies"):
@@ -351,6 +375,7 @@ def dotnet_target(repo: Repo) -> str:
 
 
 def dotnet(repo: Repo, report: Report) -> None:
+    """Adopt the analyzers, then set each rule the build still fails on to suggestion in .editorconfig."""
     props = repo.path / "Directory.Build.props"
     keep = not ours(props) and foreign(repo, "Directory.Build.props", "templates/lint/dotnet/Directory.Build.props")
     if repo.plan:
@@ -395,6 +420,7 @@ def dotnet(repo: Repo, report: Report) -> None:
 
 
 def lint_tables(prefix: str, allowed: set[str]) -> str:
+    """The Cargo.toml lint tables from the template, with each `allowed` code added as allow."""
     base = tomllib.loads((TEMPLATES / "rust" / "lints.toml").read_text(encoding="utf-8"))
     tables: dict[str, dict[str, object]] = {k: dict(v) for k, v in base.items()}
     for code in sorted(allowed):
@@ -414,6 +440,7 @@ def lint_tables(prefix: str, allowed: set[str]) -> str:
 
 
 def clippy_codes(repo: Repo) -> set[str]:
+    """The lint names clippy warns or errors on; compiler error codes such as E0308 are left out."""
     done = repo.run("cargo", "clippy", "--all-targets", "--message-format=json")
     codes = set()
     for line in done.stdout.splitlines():
@@ -430,6 +457,7 @@ def clippy_codes(repo: Repo) -> set[str]:
 
 
 def rust(repo: Repo, report: Report) -> None:
+    """Adopt the clippy and rustc lint tables, allowing each lint that still warns."""
     manifest = repo.path / "Cargo.toml"
     original = manifest.read_text(encoding="utf-8")
     outside = original.split(BEGIN, 1)[0]
@@ -465,6 +493,7 @@ def rust(repo: Repo, report: Report) -> None:
 
 
 def join_workspace_lints(repo: Repo) -> None:
+    """Point every workspace member without its own [lints] at the workspace's tables."""
     meta = json.loads(repo.run("cargo", "metadata", "--no-deps", "--format-version", "1", ok=True).stdout)
     root = (repo.path / "Cargo.toml").resolve()
     for package in meta.get("packages", []):
@@ -481,6 +510,7 @@ def join_workspace_lints(repo: Repo) -> None:
 
 
 def detect(repo: Repo) -> list[str]:
+    """The ecosystems the repository uses, in the order they are adopted."""
     found = []
     if repo.tracked("*.py") or (repo.path / "pyproject.toml").is_file():
         found.append("python")
@@ -498,6 +528,7 @@ ADOPT: dict[str, Callable[[Repo, Report], None]] = {"python": python, "ts": type
 
 
 def decide_format(mode: str, path: Path, report: Report) -> bool:
+    """Whether to run formatters: `yes` or `no` as given, and under `auto` only when no pull request is open."""
     if mode != "auto":
         return mode == "yes"
     count = open_pull_requests(path)
@@ -511,6 +542,7 @@ def decide_format(mode: str, path: Path, report: Report) -> bool:
 
 
 def main(argv: list[str]) -> int:
+    """Adopt each detected ecosystem and print the report; exit 1 when nothing was adopted."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("repo", nargs="?", type=Path, default=Path.cwd(), help="default: the current directory")
     parser.add_argument("--only", help=f"comma-separated subset of {', '.join(ECOSYSTEMS)}")
@@ -520,7 +552,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--allow-dirty", action="store_true", help="run on uncommitted changes")
     args = parser.parse_args(argv)
     path = args.repo.expanduser().resolve()
-    status = subprocess.run(["git", "status", "--porcelain"], cwd=path, capture_output=True, text=True, check=False)
+    try:
+        git = executable("git")
+    except AdoptError as err:
+        print(f"adopt_lint.py: {err}", file=sys.stderr)
+        return 2
+    status = subprocess.run([git, "status", "--porcelain"], cwd=path, capture_output=True, text=True, check=False)
     if status.returncode != 0:
         print(f"adopt_lint.py: {path} is not a git repository", file=sys.stderr)
         return 2
@@ -550,6 +587,7 @@ def main(argv: list[str]) -> int:
 
 
 def print_report(report: Report) -> None:
+    """Print the Done, Skipped, and Follow up lists, then the check command."""
     for title, lines in (("Done", report.done), ("Skipped", report.skipped), ("Follow up", report.follow_up)):
         if lines:
             print(f"{title}:")

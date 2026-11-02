@@ -69,16 +69,19 @@ PORT_RE = re.compile(r"\bPORT:")
 
 
 def files(root: Path) -> Iterator[Path]:
+    """Every file under `root` in sorted order, skipping .git, caches, virtualenvs, and node_modules."""
     for path in sorted(root.rglob("*")):
         if path.is_file() and not SKIP_DIRS.intersection(path.parts):
             yield path
 
 
 def rel(path: Path) -> str:
+    """The path relative to the repository root, as problems name it."""
     return str(path.relative_to(ROOT))
 
 
 def frontmatter(text: str, where: str, problems: list[str]) -> tuple[dict[str, str], str]:
+    """The SKILL.md frontmatter as key and value, unquoted, and the body after it."""
     lines = text.split("\n")
     if lines[0] != "---" or "---" not in lines[1:]:
         problems.append(f"{where}: starts without a --- frontmatter block")
@@ -98,6 +101,7 @@ def frontmatter(text: str, where: str, problems: list[str]) -> tuple[dict[str, s
 
 
 def check_description(description: str, where: str, problems: list[str]) -> None:
+    """A description is one sentence, ending in a period, within the length cap."""
     if len(description) > DESCRIPTION_MAX:
         problems.append(f"{where}: description is over {DESCRIPTION_MAX} characters")
     if not description.endswith("."):
@@ -107,6 +111,7 @@ def check_description(description: str, where: str, problems: list[str]) -> None
 
 
 def check_references(skill: Path, problems: list[str]) -> None:
+    """Every link and bundled path a skill's Markdown names exists inside the skill's own folder."""
     for path in files(skill):
         # assets/ holds templates for other repositories; their links point there.
         if path.suffix != ".md" or path.relative_to(skill).parts[0] == "assets":
@@ -128,6 +133,7 @@ def check_references(skill: Path, problems: list[str]) -> None:
 
 
 def check_skill(skill: Path, problems: list[str]) -> None:
+    """One skill folder: its name, frontmatter, body length, references, and no URLs."""
     where = rel(skill / "SKILL.md")
     if not SKILL_NAME_RE.match(skill.name):
         problems.append(f"{rel(skill)}: a skill folder is named dev-<name>")
@@ -150,6 +156,7 @@ def check_skill(skill: Path, problems: list[str]) -> None:
 
 
 def check_copies(problems: list[str]) -> None:
+    """Every copy shared/sync.toml lists matches its source byte for byte."""
     manifest = ROOT / "shared" / "sync.toml"
     try:
         entries = tomllib.loads(manifest.read_text(encoding="utf-8")).get("copy", [])
@@ -168,6 +175,7 @@ def check_copies(problems: list[str]) -> None:
 
 
 def check_script(path: Path, problems: list[str]) -> None:
+    """A Python file has the PEP 723 header, the version guard first, and only stdlib imports."""
     text = path.read_text(encoding="utf-8")
     header = PEP723_RE.search(text)
     if header is None:
@@ -212,6 +220,7 @@ def check_version_guard(tree: ast.Module, path: Path, problems: list[str]) -> No
 
 
 def banned_words() -> list[str]:
+    """The words no skill may hold, one per line, from $TEAM_SKILLS_BANNED_WORDS or ~/.config/team-skills/banned-words.txt."""
     configured = os.environ.get("TEAM_SKILLS_BANNED_WORDS", "")  # set but empty means unset
     path = Path(configured) if configured else Path.home() / ".config" / "team-skills" / "banned-words.txt"
     if not path.is_file():
@@ -221,6 +230,7 @@ def banned_words() -> list[str]:
 
 
 def check_banned(problems: list[str]) -> None:
+    """No banned word appears in skills/, shared/, or templates/, outside team.toml."""
     words = banned_words()
     if not words:
         return
@@ -237,6 +247,7 @@ def check_banned(problems: list[str]) -> None:
 
 
 def check_repository(problems: list[str]) -> None:
+    """No shell scripts, every Python file passes check_script, and each fixtures/ folder names a skill."""
     for path in files(ROOT):
         if path.suffix in SHELL_SUFFIXES:
             problems.append(f"{rel(path)}: shell scripts are not allowed; write Python")
@@ -297,6 +308,7 @@ def port_markers() -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    """Run every check, print the PORT: warnings and the problems, and exit 1 on any problem."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.parse_args(argv)
     problems: list[str] = []

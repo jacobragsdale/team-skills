@@ -82,7 +82,10 @@ R = TypeVar("R")
 
 
 class SprintError(Exception):
+    """A failure that stops the view, with the exit code to return."""
+
     def __init__(self, message: str, code: int = 1) -> None:
+        """Carry `message` and the exit `code`: 1 for a failed read, 3 for missing setup."""
         super().__init__(message)
         self.code = code
 
@@ -91,6 +94,7 @@ class SprintError(Exception):
 
 
 def binary() -> str:
+    """The agent-cli to call: AGENT_CLI when set, else the one on PATH."""
     found = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
     if found is None:
         msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
@@ -99,6 +103,7 @@ def binary() -> str:
 
 
 def call(argv: list[str]) -> object:
+    """Run agent-cli with `argv` and parse what it prints as JSON."""
     done = subprocess.run([binary(), *argv], capture_output=True, text=True, check=False)
     if done.returncode != 0:
         msg = f"agent-cli {' '.join(argv)} failed:\n{done.stderr.strip()}"
@@ -111,10 +116,12 @@ def call(argv: list[str]) -> object:
 
 
 def ado(*args: str) -> object:
+    """Run an `agent-cli ado` read and parse its JSON."""
     return call(["ado", *args])
 
 
 def rows(value: object, what: str) -> list[dict[str, object]]:
+    """`value` as a list of JSON objects with string keys; anything else is an error naming `what`."""
     msg = f"{what}: expected a JSON list of objects"
     if not isinstance(value, list):
         raise SprintError(msg)
@@ -127,6 +134,7 @@ def rows(value: object, what: str) -> list[dict[str, object]]:
 
 
 def obj(value: object, what: str) -> dict[str, object]:
+    """`value` as a JSON object with string keys; anything else is an error naming `what`."""
     if not isinstance(value, dict):
         msg = f"{what}: expected a JSON object"
         raise SprintError(msg)
@@ -134,6 +142,7 @@ def obj(value: object, what: str) -> dict[str, object]:
 
 
 def parallel(fn: Callable[[T], R], items: Iterable[T]) -> list[R]:
+    """`fn` over `items` on a thread pool, results in input order; one item or none runs inline."""
     work = list(items)
     if len(work) <= 1:
         return [fn(x) for x in work]
@@ -142,6 +151,7 @@ def parallel(fn: Callable[[T], R], items: Iterable[T]) -> list[R]:
 
 
 def stamp(value: object) -> datetime | None:
+    """An ISO timestamp as an aware UTC datetime; None when the value is missing or empty."""
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -153,11 +163,13 @@ def stamp(value: object) -> datetime | None:
 
 
 def text(row: dict[str, object], key: str) -> str:
+    """The string at `key`, or "" when it is missing or not a string."""
     value = row.get(key)
     return value if isinstance(value, str) else ""
 
 
 def number(row: dict[str, object], key: str, what: str) -> int:
+    """The integer at `key`, accepting a digit string; anything else is an error naming `what`."""
     value = row.get(key)
     if isinstance(value, bool) or not isinstance(value, int):
         if isinstance(value, str) and value.isdigit():
@@ -168,12 +180,14 @@ def number(row: dict[str, object], key: str, what: str) -> int:
 
 
 def real(value: object) -> float | None:
+    """A JSON number as a float; None for anything else, booleans included."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
 
 
 def rfc3339(moment: datetime) -> str:
+    """`moment` in UTC, to the second, as agent-cli's --since and --until take it."""
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -183,6 +197,7 @@ def day_start(day: date) -> datetime:
 
 
 def weekdays(first: date, last: date) -> list[date]:
+    """Monday to Friday from `first` to `last`, both included."""
     out: list[date] = []
     day = first
     while day <= last:
@@ -197,12 +212,16 @@ def weekdays(first: date, last: date) -> list[date]:
 
 @dataclass(frozen=True)
 class Person:
+    """A teammate: the display name, and the sign-in address ADO prints as an assignee."""
+
     name: str
     address: str
 
 
 @dataclass(frozen=True)
 class Tags:
+    """The team's tag names from team.toml, and whether they go on the PBI rather than the task."""
+
     blocked: str
     ready_for_qa: str
     ready_for_deployment: str
@@ -212,6 +231,8 @@ class Tags:
 
 @dataclass(frozen=True)
 class Entry:
+    """One logged time entry: hours on a task for a day. `task` is 0 when the entry names none."""
+
     id: str
     task: int
     day: date
@@ -220,6 +241,8 @@ class Entry:
 
 @dataclass(frozen=True)
 class TimeLog:
+    """The team's time-log commands from team.toml [timelog], with the day's hours and the block size."""
+
     commands: dict[str, list[str]]
     fields: dict[str, str]
     day_hours: float
@@ -228,9 +251,11 @@ class TimeLog:
 
     @property
     def ported(self) -> bool:
+        """Whether team.toml names a `list` command yet; until then the views skip time."""
         return bool(self.commands.get("list"))
 
     def entries(self, person: str, first: date, last: date) -> list[Entry]:
+        """`person`'s entries dated `first` to `last`, through the team's `list` command."""
         values = {"person": person, "since": first.isoformat(), "until": last.isoformat()}
         argv = []
         for arg in self.commands["list"]:
@@ -254,6 +279,8 @@ class TimeLog:
 
 @dataclass(frozen=True)
 class Team:
+    """Everything team.toml says: the ADO team and area, the roster, the tags, and time logging."""
+
     name: str | None
     area: str | None
     people: list[Person]
@@ -261,12 +288,15 @@ class Team:
     timelog: TimeLog
 
     def team_args(self) -> list[str]:
+        """The --team argument for agent-cli, or none when team.toml names no team."""
         return ["--team", self.name] if self.name is not None else []
 
     def area_args(self) -> list[str]:
+        """The --area argument for agent-cli, or none when team.toml names no area."""
         return ["--area", self.area] if self.area is not None else []
 
     def find(self, query: str) -> Person | None:
+        """The teammate a name or address names: an exact match first, then a unique partial name; None when nobody matches."""
         wanted = query.strip().lower()
         exact = [p for p in self.people if wanted in (p.name.lower(), p.address.lower())]
         if exact:
@@ -279,6 +309,7 @@ class Team:
         return partial[0] if partial else None
 
     def display(self, address: str | None) -> str:
+        """The roster name for an assignee address, the address itself when it is not on the roster, or "unassigned"."""
         if address is None:
             return "unassigned"
         for person in self.people:
@@ -288,16 +319,19 @@ class Team:
 
 
 def table(config: dict[str, object], name: str) -> dict[str, object]:
+    """The TOML table `name` from `config`, or an empty one when it is missing."""
     value = config.get(name)
     return {str(k): v for k, v in value.items()} if isinstance(value, dict) else {}
 
 
 def option(section: dict[str, object], key: str) -> str | None:
+    """The trimmed string at `key`; None when it is missing, blank, or not a string."""
     value = section.get(key)
     return (value.strip() or None) if isinstance(value, str) else None
 
 
 def load_team() -> Team:
+    """The team from the skill's assets/team.toml, or shared/team.toml when run from the source."""
     here = Path(__file__).resolve().parent.parent
     path = next((here / n for n in TEAM_FILES if (here / n).is_file()), None)
     if path is None:
@@ -366,6 +400,8 @@ def whoami() -> str:
 
 @dataclass(frozen=True)
 class Load:
+    """One person's share of the sprint, as the sprint's capacity view reports it."""
+
     address: str
     items: int
     remaining: float
@@ -374,6 +410,8 @@ class Load:
 
 @dataclass(frozen=True)
 class Sprint:
+    """A sprint's dates, totals, and per-person load, as `sprint get` reports them."""
+
     path: str
     name: str
     start: date
@@ -386,16 +424,20 @@ class Sprint:
     days_off: frozenset[date]
 
     def working_days(self) -> list[date]:
+        """The sprint's weekdays, less the team's days off."""
         return [d for d in weekdays(self.start, self.finish) if d not in self.days_off]
 
     def day_number(self, today: date) -> int:
+        """Which working day of the sprint `today` is, counting from 1."""
         return len([d for d in self.working_days() if d <= today])
 
     def load(self, address: str) -> Load | None:
+        """The load for `address`, or None when the sprint's capacity view does not list it."""
         return next((p for p in self.loads if p.address.lower() == address.lower()), None)
 
 
 def off_days(ranges: object, what: str) -> frozenset[date]:
+    """The weekdays inside each start-to-end range in `ranges`."""
     out: set[date] = set()
     for entry in rows(ranges or [], what):
         first, last = stamp(entry.get("start")), stamp(entry.get("end"))
@@ -405,6 +447,7 @@ def off_days(ranges: object, what: str) -> frozenset[date]:
 
 
 def load_sprint(team: Team, which: str = "@current") -> Sprint:
+    """The sprint `which` names (@current, @previous, a path or a name), read through the team's settings."""
     what = f"sprint {which}"
     try:
         row = obj(ado("sprint", "get", which, *team.team_args()), what)
@@ -437,6 +480,8 @@ def load_sprint(team: Team, which: str = "@current") -> Sprint:
 
 @dataclass
 class PullRequest:
+    """A pull request, with its reviewers' votes and linked work items."""
+
     id: int
     repo: str
     title: str
@@ -451,11 +496,13 @@ class PullRequest:
 
     @property
     def approved(self) -> bool:
+        """Whether a reviewer approved and nobody is waiting for the author or rejected it."""
         votes = {v.lower() for v in self.votes}
         return bool(votes & APPROVING) and not votes & HOLDING
 
 
 def load_pr(pr_id: int) -> PullRequest:
+    """One pull request, read with its reviewers and work items but no comments."""
     what = f"pull request {pr_id}"
     row = obj(ado("pr", "get", str(pr_id), "--comments", "0", "--fields", "id,repo,title,author,status,is_draft,created,reviewers,open_threads,work_items,source"), what)
     reviewers = rows(row.get("reviewers") or [], f"{what}: reviewers")
@@ -478,6 +525,8 @@ def load_pr(pr_id: int) -> PullRequest:
 
 @dataclass
 class Span:
+    """A stretch of time an item spent in one state; `until` is None while it is still there."""
+
     state: str
     since: datetime
     until: datetime | None
@@ -485,6 +534,8 @@ class Span:
 
 @dataclass
 class Item:
+    """A work item in the sprint. The fields after `priority` are filled only once it is read in detail."""
+
     id: int
     type: str
     title: str
@@ -510,25 +561,31 @@ class Item:
 
     @property
     def is_task(self) -> bool:
+        """Whether the item is a task, the unit a developer works and logs time on."""
         return self.type.lower() in TASK_TYPES
 
     @property
     def is_qa(self) -> bool:
+        """Whether the item is the QA task: a task whose title starts with "QA"."""
         return self.is_task and self.title.strip().lower().startswith(QA_PREFIX)
 
     @property
     def done(self) -> bool:
+        """Whether the item's state is in the Completed or Removed category."""
         return self.category in ("Completed", "Removed")
 
     @property
     def active(self) -> bool:
+        """Whether the item's state is in the InProgress category."""
         return self.category == "InProgress"
 
     @property
     def since(self) -> datetime | None:
+        """When the item entered its current state; None before its history is read."""
         return self.spans[-1].since if self.spans else None
 
     def has_tag(self, name: str) -> bool:
+        """Whether the item carries tag `name`, ignoring case."""
         return name.lower() in {t.lower() for t in self.tags}
 
 
@@ -536,38 +593,46 @@ class States:
     """Each work item type's states and their categories, read once per type."""
 
     def __init__(self) -> None:
+        """Start with no types read."""
         self.by_type: dict[str, dict[str, str]] = {}
 
     def load(self, types: Iterable[str]) -> None:
+        """Read the states of each of `types` not read yet."""
         wanted = sorted({t for t in types if t.lower() not in self.by_type})
         for name, states in zip(wanted, parallel(self.read, wanted), strict=True):
             self.by_type[name.lower()] = states
 
     @staticmethod
     def read(item_type: str) -> dict[str, str]:
+        """One work item type's states, mapped to their categories."""
         what = f"work item type {item_type}"
         info = obj(ado("workitem-type", "get", item_type, "--fields", "states"), what)
         return {text(s, "name"): text(s, "category") for s in rows(info.get("states"), what)}
 
     def category(self, item_type: str, state: str) -> str:
+        """The category of `state` for `item_type`, or "" when the type has no such state."""
         states = self.by_type.get(item_type.lower(), {})
         return next((c for s, c in states.items() if s.lower() == state.lower()), "")
 
     def first(self, item_type: str, category: str) -> str | None:
+        """The first state of `item_type` in `category`, or None when the type has none."""
         states = self.by_type.get(item_type.lower(), {})
         return next((s for s, c in states.items() if c == category), None)
 
     def named(self, item_type: str, category: str) -> list[str]:
+        """Every state of `item_type` in `category`, in ADO's order."""
         return [s for s, c in self.by_type.get(item_type.lower(), {}).items() if c == category]
 
 
 def split_tags(value: object) -> set[str]:
+    """ADO's semicolon-separated tag string as a set of names."""
     if not isinstance(value, str):
         return set()
     return {t.strip() for t in value.split(";") if t.strip()}
 
 
 def read_history(item: Item, sprint_path: str, now: datetime) -> None:
+    """Fill the item's state spans, its sprint entry time, its tag times, and its hours and points from ADO history."""
     what = f"history of {item.id}"
     history = obj(ado("history", "get", str(item.id), "--fields", "states,changes"), what)
     spans = []
@@ -597,6 +662,7 @@ def read_history(item: Item, sprint_path: str, now: datetime) -> None:
 
 
 def read_detail(item: Item) -> None:
+    """Fill the item's parent, children, pull requests, branches, last comment time, and acceptance criteria."""
     what = f"work item {item.id}"
     row = obj(ado("workitem", "get", str(item.id), "--comments", "1", "--fields", "parent,children,pull_requests,branches,comments,acceptance_criteria"), what)
     parent, children = row.get("parent"), row.get("children")
@@ -611,6 +677,8 @@ def read_detail(item: Item) -> None:
 
 @dataclass
 class Board:
+    """Everything one view reads about a sprint: its work items, their states, and their pull requests."""
+
     team: Team
     sprint: Sprint
     states: States
@@ -619,6 +687,7 @@ class Board:
     prs: dict[int, PullRequest]
 
     def parent_of(self, item: Item) -> Item | None:
+        """The item's parent when it is in this sprint, else None."""
         return self.items.get(item.parent) if item.parent is not None else None
 
     def tagged(self, item: Item, name: str) -> datetime | None:
@@ -630,14 +699,21 @@ class Board:
 
     def stage(self, item: Item) -> tuple[str, datetime | None]:
         """The item's stage, and since when it has been in it."""
-        tags = self.team.tags
         parent = self.parent_of(item)
         if parent is not None and parent.done:
             return "done", parent.since
         if item.is_qa:
-            if item.done:
-                return "done", item.since
-            return ("qa" if item.active else "todo"), item.since
+            return ("done" if item.done else "qa" if item.active else "todo"), item.since
+        reviewed = self.review_stage(item)
+        if reviewed is not None:
+            return reviewed
+        if item.done:
+            return "done", item.since
+        return ("doing" if item.category in ("InProgress", "Resolved") else "todo"), item.since
+
+    def review_stage(self, item: Item) -> tuple[str, datetime | None] | None:
+        """The stage from the item's tags and pull requests, or None while it has neither."""
+        tags = self.team.tags
         for key, tag in (("deploy", tags.ready_for_deployment), ("qa", tags.ready_for_qa)):
             if (at := self.tagged(item, tag)) is not None:
                 return key, at
@@ -647,15 +723,14 @@ class Board:
         if open_prs := [p for p in prs if p.status == "active" and not p.draft]:
             first = min((p.created for p in open_prs if p.created), default=None)
             return ("approved" if any(p.approved for p in open_prs) else "review"), first
-        if item.done:
-            return "done", item.since
-        return ("doing" if item.category in ("InProgress", "Resolved") else "todo"), item.since
+        return None
 
     def units(self) -> list[Item]:
         """The rows of work: tasks, and backlog items that have no tasks of their own."""
         return [i for i in self.items.values() if i.category != "Removed" and (i.is_task or (i.detailed and not i.children))]
 
     def flags(self, item: Item) -> list[str]:
+        """What needs attention on `item`: blocked, silent, stale, unassigned, added mid-sprint, and the like."""
         stage, _ = self.stage(item)
         out = []
         if self.tagged(item, self.team.tags.blocked) is not None:
@@ -726,6 +801,7 @@ def gather(team: Team, sprint: Sprint, now: datetime, focus: set[str] | None) ->
 
 
 def wants_detail(item: Item, focus: set[str] | None) -> bool:
+    """Whether `item` is read in detail: everything with no focus, else the focus's items and the unassigned open tasks."""
     if focus is None:
         return True
     if item.assignee is not None:
@@ -738,6 +814,8 @@ def wants_detail(item: Item, focus: set[str] | None) -> bool:
 
 @dataclass(frozen=True)
 class Styled:
+    """Text with one of COLORS, painted in a terminal and plain elsewhere."""
+
     text: str
     color: str
 
@@ -747,21 +825,29 @@ Cell = str | Styled
 
 @dataclass(frozen=True)
 class Heading:
+    """A section heading in a view."""
+
     text: str
 
 
 @dataclass(frozen=True)
 class Para:
+    """A paragraph in a view."""
+
     text: Cell
 
 
 @dataclass(frozen=True)
 class Bullets:
+    """A bulleted list in a view."""
+
     lines: Sequence[Cell]
 
 
 @dataclass(frozen=True)
 class Table:
+    """A table in a view, which shrinks its `flexible` column first to fit the terminal."""
+
     headers: list[str]
     rows: list[list[Cell]]
     flexible: int  # the column that shrinks to fit the terminal
@@ -774,20 +860,24 @@ STAGE_COLORS = {"todo": "dim", "doing": "blue", "review": "yellow", "approved": 
 
 
 def plain(cell: Cell) -> str:
+    """The cell's text without its color."""
     return cell.text if isinstance(cell, Styled) else cell
 
 
 def paint(cell: Cell, *, color: bool) -> str:
+    """The cell's text, with its ANSI color when `color` is on."""
     if not isinstance(cell, Styled) or not color:
         return plain(cell)
     return f"\033[{COLORS[cell.color]}m{cell.text}\033[0m"
 
 
 def clip(value: str, width: int) -> str:
+    """`value` cut to `width` characters, ending in an ellipsis when cut."""
     return value if len(value) <= width else value[: max(1, width - 1)] + "…"
 
 
 def markdown(blocks: list[Block]) -> str:
+    """The blocks as Markdown, for an agent chat or a pipe."""
     out: list[str] = []
     for block in blocks:
         if isinstance(block, Heading):
@@ -806,6 +896,7 @@ def markdown(blocks: list[Block]) -> str:
 
 
 def terminal(blocks: list[Block], *, color: bool) -> str:
+    """The blocks as boxed tables and bullets, sized to the terminal."""
     width = shutil.get_terminal_size((100, 24)).columns
     out: list[str] = []
     for block in blocks:
@@ -821,6 +912,7 @@ def terminal(blocks: list[Block], *, color: bool) -> str:
 
 
 def box(block: Table, width: int, *, color: bool) -> list[str]:
+    """The table drawn with box characters, its columns shrunk until it fits `width`."""
     widths = [len(h) for h in block.headers]
     for row in block.rows:
         widths = [max(w, len(plain(c))) for w, c in zip(widths, row, strict=True)]
@@ -852,6 +944,7 @@ def box(block: Table, width: int, *, color: bool) -> list[str]:
 
 
 def emit(blocks: list[Block], data: object, fmt: str) -> None:
+    """Print the view as `fmt`: json prints `data`, term and md print the blocks."""
     if fmt == "json":
         print(json.dumps(data, indent=1, default=str))
     elif fmt == "term":
@@ -862,6 +955,7 @@ def emit(blocks: list[Block], data: object, fmt: str) -> None:
 
 
 def days_since(moment: datetime | None, now: datetime) -> str:
+    """How long ago `moment` was, in whole days, "<1 d" under a day, or "-" when unknown."""
     if moment is None:
         return "-"
     days = (now - moment).days
@@ -869,10 +963,12 @@ def days_since(moment: datetime | None, now: datetime) -> str:
 
 
 def hours(value: float | None) -> str:
+    """Hours for display, or "-" when unknown."""
     return "-" if value is None else f"{value:g} h"
 
 
 def item_row(board: Board, item: Item, *, owner: bool) -> list[Cell]:
+    """The item's row in a stage table, with its owner when `owner` is set."""
     stage, since = board.stage(item)
     flags = board.flags(item)
     row: list[Cell] = [f"#{item.id}", item.title]
@@ -888,6 +984,7 @@ def item_row(board: Board, item: Item, *, owner: bool) -> list[Cell]:
 
 
 def item_data(board: Board, item: Item) -> dict[str, object]:
+    """The item as JSON-ready data for --format json."""
     stage, since = board.stage(item)
     return {
         "id": item.id,
@@ -906,6 +1003,7 @@ def item_data(board: Board, item: Item) -> dict[str, object]:
 
 
 def stage_order(board: Board) -> Callable[[Item], tuple[int, int]]:
+    """A sort key for items: by stage along the board, then by id."""
     order = list(STAGES)
     return lambda i: (order.index(board.stage(i)[0]), i.id)
 
@@ -915,6 +1013,8 @@ def stage_order(board: Board) -> Callable[[Item], tuple[int, int]]:
 
 @dataclass(frozen=True)
 class Fix:
+    """A write /dev-sprint offers. `write` is the post.py arguments, or None when the agent drafts the text."""
+
     kind: str
     item: int | None
     what: str
@@ -923,6 +1023,7 @@ class Fix:
 
 
 def headline(board: Board, today: date) -> str:
+    """The sprint's one-line summary: which working day it is, and how many are left."""
     sprint = board.sprint
     total = len(sprint.working_days())
     left = sprint.days_left if sprint.days_left is not None else "?"
@@ -951,6 +1052,7 @@ def time_line(team: Team, person: str, today: date) -> tuple[str, list[date], di
 
 
 def since_last_day(today: date) -> tuple[date, list[str]]:
+    """Your last working day before `today`, and what you did in ADO since, one line per thing."""
     last = today - timedelta(days=1)
     while last.weekday() >= calendar.SATURDAY:
         last -= timedelta(days=1)
@@ -975,6 +1077,7 @@ def since_last_day(today: date) -> tuple[date, list[str]]:
 
 
 def ranks(team: Team) -> dict[int, int]:
+    """Each backlog item's place on the team's backlog, by id."""
     found = rows(ado("backlog", "list", "--level", "stories", *team.team_args(), "--limit", LIST_LIMIT, "--fields", "id,rank"), "the backlog")
     return {number(r, "id", "backlog item"): number(r, "rank", "backlog item") for r in found}
 
@@ -998,7 +1101,44 @@ def next_up(board: Board, limit: int) -> tuple[list[Item], str | None]:
     return sorted(candidates, key=key)[:limit], note
 
 
+def needs_you(board: Board, mine: list[Item], owed: list[dict[str, object]], my_prs: list[PullRequest], now: datetime) -> list[Cell]:
+    """What waits on you: blocked items, reviews you owe, open threads on your PRs, and silent items."""
+    needs: list[Cell] = []
+    for item in mine:
+        flags = board.flags(item)
+        if "blocked" in flags:
+            needs.append(Styled(f"#{item.id} {item.title} is blocked", "red"))
+    for pr in owed[:LISTED_REVIEWS]:
+        waited = days_since(stamp(pr.get("created")), now)
+        needs.append(f"Review !{pr.get('id')} {text(pr, 'title')} by {text(pr, 'author')} (waiting {waited})")
+    if len(owed) > LISTED_REVIEWS:
+        needs.append(f"…and {len(owed) - LISTED_REVIEWS} more reviews you owe")
+    needs.extend(f"!{pr.id} {pr.title} has {pr.open_threads} open threads" for pr in my_prs if pr.status == "active" and pr.open_threads)
+    for item in mine:
+        if "silent" in board.flags(item):
+            quiet = f"in {days_since(item.last_comment, now)}" if item.last_comment else "yet"
+            needs.append(f"#{item.id} {item.title} has no note {quiet}")
+    return needs
+
+
+def next_pick(board: Board, picks: list[Item], note: str | None) -> list[Block]:
+    """The "Next to pick up" section of your view."""
+    blocks: list[Block] = [Heading("Next to pick up")]
+    if picks:
+        pick = picks[0]
+        parent = board.parent_of(pick)
+        under = f" under #{parent.id} {parent.title}" if parent else ""
+        blocks.append(Para(f"#{pick.id} {pick.title}{under} (/dev-start {pick.id} claims it)"))
+    else:
+        blocks.append(Para("No unassigned task is waiting in this sprint."))
+    if note is not None:
+        blocks.append(Para(Styled(note, "dim")))
+
+    return blocks
+
+
 def view_me(team: Team, which: str, now: datetime, today: date) -> tuple[list[Block], dict[str, object]]:
+    """Your sprint: the headline, what needs you, your items by stage, what to pick up next, and fixes."""
     me = whoami()
     sprint = load_sprint(team, which)
     board = gather(team, sprint, now, {me.lower()})
@@ -1021,21 +1161,7 @@ def view_me(team: Team, which: str, now: datetime, today: date) -> tuple[list[Bl
         blocks.append(Para(f"Remaining: {hours(load.remaining)} against {capacity} capacity left"))
     blocks.append(Para(time_text))
 
-    needs: list[Cell] = []
-    for item in mine:
-        flags = board.flags(item)
-        if "blocked" in flags:
-            needs.append(Styled(f"#{item.id} {item.title} is blocked", "red"))
-    for pr in owed[:LISTED_REVIEWS]:
-        waited = days_since(stamp(pr.get("created")), now)
-        needs.append(f"Review !{pr.get('id')} {text(pr, 'title')} by {text(pr, 'author')} (waiting {waited})")
-    if len(owed) > LISTED_REVIEWS:
-        needs.append(f"…and {len(owed) - LISTED_REVIEWS} more reviews you owe")
-    needs.extend(f"!{pr.id} {pr.title} has {pr.open_threads} open threads" for pr in my_prs if pr.status == "active" and pr.open_threads)
-    for item in mine:
-        if "silent" in board.flags(item):
-            quiet = f"in {days_since(item.last_comment, now)}" if item.last_comment else "yet"
-            needs.append(f"#{item.id} {item.title} has no note {quiet}")
+    needs = needs_you(board, mine, owed, my_prs, now)
     blocks += [Heading("Needs you"), Bullets(needs or ["Nothing right now."])]
 
     blocks.append(Heading("Your items by stage"))
@@ -1044,16 +1170,7 @@ def view_me(team: Team, which: str, now: datetime, today: date) -> tuple[list[Bl
     else:
         blocks.append(Para("Nothing in this sprint is assigned to you."))
 
-    blocks.append(Heading("Next to pick up"))
-    if picks:
-        pick = picks[0]
-        parent = board.parent_of(pick)
-        under = f" under #{parent.id} {parent.title}" if parent else ""
-        blocks.append(Para(f"#{pick.id} {pick.title}{under} (/dev-start {pick.id} claims it)"))
-    else:
-        blocks.append(Para("No unassigned task is waiting in this sprint."))
-    if pick_note is not None:
-        blocks.append(Para(Styled(pick_note, "dim")))
+    blocks += next_pick(board, picks, pick_note)
 
     blocks += [Heading(f"Since {last_day:%A}"), Bullets(activity or ["No activity in ADO."])]
 
@@ -1092,6 +1209,7 @@ def outside_sprint(board: Board) -> list[dict[str, object]]:
 
 
 def my_fixes(board: Board, mine: list[Item], my_prs: list[PullRequest], outside: list[dict[str, object]], gaps: list[date]) -> list[Fix]:
+    """The writes that would bring your own items, pull requests, and time up to date."""
     tags = board.team.tags
     fixes = []
     for item in mine:
@@ -1143,6 +1261,7 @@ def my_fixes(board: Board, mine: list[Item], my_prs: list[PullRequest], outside:
 
 
 def view_person(team: Team, which: str, query: str, now: datetime, today: date) -> tuple[list[Block], dict[str, object]]:
+    """One teammate's sprint, read-only: what needs attention and their items by stage."""
     person = team.find(query)
     address = person.address if person else query
     name = person.name if person else query
@@ -1172,6 +1291,7 @@ def view_person(team: Team, which: str, query: str, now: datetime, today: date) 
 
 
 def work_summary(sprint: Sprint) -> str:
+    """The sprint's points, and its remaining work against the team's capacity left."""
     capacity = [p.capacity_left for p in sprint.loads if p.capacity_left is not None]
     work = f"Points: {sprint.points_done:g} done of {sprint.points:g}."
     if not capacity:
@@ -1215,6 +1335,7 @@ def needs_attention(team: Team, board: Board, units: list[Item], now: datetime) 
 
 
 def view_team(team: Team, which: str, now: datetime, today: date) -> tuple[list[Block], dict[str, object]]:
+    """The team's sprint: a row per person, what needs attention, and what is likely to miss."""
     sprint = load_sprint(team, which)
     board = gather(team, sprint, now, None)
     units = sorted(board.units(), key=stage_order(board))
@@ -1286,12 +1407,15 @@ def view_team(team: Team, which: str, now: datetime, today: date) -> tuple[list[
 
 @dataclass(frozen=True)
 class Proposal:
+    """A proposed time entry: hours on a task for one day."""
+
     day: date
     task: int
     hours: float
 
 
 def active_days(spans: list[Span], category: Callable[[str], str], now: datetime, days: list[date]) -> set[date]:
+    """The days in `days` on which any of the spans was in an InProgress state."""
     out = set()
     for span in spans:
         if category(span.state) != "InProgress":
@@ -1332,7 +1456,41 @@ def plan_day(log: TimeLog, gap: float, *, working: list[int], weight: Counter[in
     return planned, note
 
 
+def activity_weight(first: date, titles: dict[int, str]) -> dict[date, Counter[int]]:
+    """Per day, how often your ADO activity since `first` touched each of your tasks, directly or through a PR."""
+    events = rows(ado("activity", "list", "--person", "@me", "--since", rfc3339(day_start(first)), "--limit", LIST_LIMIT, "--fields", "at,kind,id"), "your activity")
+    pr_ids = sorted({int(str(e.get("id"))) for e in events if e.get("kind") == "pr" and str(e.get("id")).isdigit()})
+    pr_items = {pr.id: pr.work_items for pr in parallel(load_pr, pr_ids)}
+    weight: dict[date, Counter[int]] = defaultdict(Counter)
+    for event in events:
+        at = stamp(event.get("at"))
+        ident = str(event.get("id"))
+        if at is None or not ident.isdigit():
+            continue
+        day = at.astimezone().date()
+        linked = pr_items.get(int(ident), []) if event.get("kind") == "pr" else [int(ident)]
+        for task in linked:
+            if task in titles:
+                weight[day][task] += 1
+    return weight
+
+
+def team_days_off(team: Team, first: date, today: date) -> tuple[set[date], str | None]:
+    """The team's days off from `first` to `today`, and a note when they could not be read."""
+    holidays: set[date] = set()
+    holiday_note = None
+    try:
+        sprints = rows(ado("sprint", "list", *team.team_args(), "--fields", "path,start,finish"), "the team's sprints")
+        overlapping = [text(s, "path") for s in sprints if (s_start := stamp(s.get("start"))) and (s_end := stamp(s.get("finish"))) and s_start.date() <= today and s_end.date() >= first]
+        for sprint in parallel(lambda p: load_sprint(team, p), overlapping):
+            holidays |= sprint.days_off
+    except SprintError:
+        holiday_note = "Team days off could not be read; mark them yourself."
+    return holidays, holiday_note
+
+
 def view_time(team: Team, now: datetime, today: date, first: date | None) -> tuple[list[Block], dict[str, object]]:
+    """Your hours per working day since `first` (default Monday last week), and a proposal for each gap."""
     log = team.timelog
     if not log.ported:
         msg = "time logging is not set up: team.toml [timelog] has no `list` command yet. docs/porting.md says how to fill it in."
@@ -1355,30 +1513,8 @@ def view_time(team: Team, now: datetime, today: date, first: date | None) -> tup
     parallel(lambda item: read_history(item, "", now), tasks)
     active = {item.id: active_days(item.spans, lambda s: states.category("Task", s), now, days) for item in tasks}
 
-    events = rows(ado("activity", "list", "--person", "@me", "--since", rfc3339(day_start(first)), "--limit", LIST_LIMIT, "--fields", "at,kind,id"), "your activity")
-    pr_ids = sorted({int(str(e.get("id"))) for e in events if e.get("kind") == "pr" and str(e.get("id")).isdigit()})
-    pr_items = {pr.id: pr.work_items for pr in parallel(load_pr, pr_ids)}
-    weight: dict[date, Counter[int]] = defaultdict(Counter)
-    for event in events:
-        at = stamp(event.get("at"))
-        ident = str(event.get("id"))
-        if at is None or not ident.isdigit():
-            continue
-        day = at.astimezone().date()
-        linked = pr_items.get(int(ident), []) if event.get("kind") == "pr" else [int(ident)]
-        for task in linked:
-            if task in titles:
-                weight[day][task] += 1
-
-    holidays: set[date] = set()
-    holiday_note = None
-    try:
-        sprints = rows(ado("sprint", "list", *team.team_args(), "--fields", "path,start,finish"), "the team's sprints")
-        overlapping = [text(s, "path") for s in sprints if (s_start := stamp(s.get("start"))) and (s_end := stamp(s.get("finish"))) and s_start.date() <= today and s_end.date() >= first]
-        for sprint in parallel(lambda p: load_sprint(team, p), overlapping):
-            holidays |= sprint.days_off
-    except SprintError:
-        holiday_note = "Team days off could not be read; mark them yourself."
+    weight = activity_weight(first, titles)
+    holidays, holiday_note = team_days_off(team, first, today)
 
     block = log.block_hours
     proposals: list[Proposal] = []
@@ -1395,7 +1531,7 @@ def view_time(team: Team, now: datetime, today: date, first: date | None) -> tup
         Para(f"Each working day holds exactly {log.day_hours:g} h, in {block:g} h blocks."),
         Table(["Day", "Logged", "Proposed", "Note"], table_rows, 2),
     ]
-    if holiday_note:
+    if holiday_note is not None:
         blocks.append(Para(Styled(holiday_note, "yellow")))
     named = {p.task for p in proposals}
     if named:
@@ -1409,6 +1545,7 @@ def view_time(team: Team, now: datetime, today: date, first: date | None) -> tup
 
 
 def view_next(team: Team, which: str, now: datetime, limit: int) -> tuple[list[Block], dict[str, object]]:
+    """The top `limit` unassigned tasks not started in the sprint."""
     sprint = load_sprint(team, which)
     board = gather(team, sprint, now, set())
     picks, note = next_up(board, limit)
@@ -1426,9 +1563,19 @@ def view_next(team: Team, which: str, now: datetime, limit: int) -> tuple[list[B
     return blocks, {"sprint": sprint, "next": [item_data(board, i) for i in picks]}
 
 
+def executable(name: str) -> str:
+    """The full path of `name` on PATH, so a process never starts from a partial path."""
+    found = shutil.which(name)
+    if found is None:
+        msg = f"{name} is not on PATH"
+        raise SprintError(msg)
+    return found
+
+
 def view_reviewers(team: Team, files: list[str]) -> tuple[list[Block], dict[str, object]]:
+    """One or two teammates to review a change to `files`, by who changed them most recently and who owes fewest reviews."""
     me = whoami().lower()
-    done = subprocess.run(["git", "log", "--no-merges", f"--since={REVIEW_MONTHS}.months", "--format=%ae%x09%an%x09%at", "--", *files], capture_output=True, text=True, check=False)
+    done = subprocess.run([executable("git"), "log", "--no-merges", f"--since={REVIEW_MONTHS}.months", "--format=%ae%x09%an%x09%at", "--", *files], capture_output=True, text=True, check=False)
     if done.returncode != 0:
         msg = f"git log failed:\n{done.stderr.strip()}"
         raise SprintError(msg)
@@ -1466,6 +1613,7 @@ def view_reviewers(team: Team, files: list[str]) -> tuple[list[Block], dict[str,
 
 
 def main(argv: list[str]) -> int:
+    """Run one sprint.py command and print its view; return the exit code."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--format", choices=("auto", "term", "md", "json"), default="auto", help="auto: colored tables in a terminal, Markdown when piped")
     verbs = parser.add_subparsers(dest="verb", required=True, metavar="VERB")
@@ -1509,6 +1657,7 @@ def main(argv: list[str]) -> int:
 
 
 def as_json(value: object) -> object:
+    """`value` as JSON-ready data: dates as strings, dataclasses and sets as plain objects and lists."""
     if isinstance(value, dict):
         return {str(k): as_json(v) for k, v in value.items()}
     if isinstance(value, list | tuple | set | frozenset):

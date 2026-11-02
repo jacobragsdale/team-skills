@@ -4,9 +4,8 @@
 extend = "templates/lint/python/ruff.toml"
 extend-exclude = ["skills/*/scripts"]
 
-[lint.per-file-ignores]
+[lint.extend-per-file-ignores]  # extend, so the template's test entries still apply
 "{scripts,shared/scripts}/*.py" = [
     "T201",  # These are CLIs; printing their output is the job.
-    "INP001",  # Standalone PEP 723 scripts, not a package.
     "UP036",  # The version guard turns `python3` on an older interpreter into a clear message.
 ]

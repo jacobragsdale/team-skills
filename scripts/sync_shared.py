@@ -34,16 +34,19 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class SyncError(Exception):
-    pass
+    """Raised when shared/sync.toml is malformed or names a file or skill that does not exist."""
 
 
 @dataclass(frozen=True)
 class Copy:
+    """One file in shared/ or templates/ and the place in a skill that carries a copy of it."""
+
     source: Path
     target: Path
 
 
 def strings(value: object, where: str) -> list[str]:
+    """Check that a sync.toml value is a list of strings; `where` names it in the error."""
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         msg = f"{where} must be a list of texts"
         raise SyncError(msg)
@@ -51,6 +54,7 @@ def strings(value: object, where: str) -> list[str]:
 
 
 def copies(root: Path) -> list[Copy]:
+    """Every copy shared/sync.toml asks for, after checking that each source and skill exists."""
     manifest = root / "shared" / "sync.toml"
     try:
         data = tomllib.loads(manifest.read_text(encoding="utf-8"))
@@ -85,10 +89,12 @@ def copies(root: Path) -> list[Copy]:
 
 
 def drifted(copy: Copy) -> bool:
+    """Whether the copy is missing or its bytes differ from the source."""
     return not copy.target.is_file() or copy.target.read_bytes() != copy.source.read_bytes()
 
 
 def main(argv: list[str]) -> int:
+    """Refresh each drifted copy, or with --check list them and exit 1."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="report drift; change nothing")
     args = parser.parse_args(argv)

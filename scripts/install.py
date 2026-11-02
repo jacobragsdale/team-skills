@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Install the skills by symlinking each one into ~/.agents/skills/.
+r"""Install the skills by symlinking each one into ~/.agents/skills/.
 
 Cursor, Copilot in VS Code, and Copilot CLI all read skills from
 ~/.agents/skills/, so one link per skill serves all three, and `git pull`
@@ -11,7 +11,7 @@ updates them. The script also removes links to skills this repository no
 longer has. It never replaces a real folder, and replaces a link that points
 somewhere else only with --force.
 
---windows also copies the skills to %USERPROFILE%\\.agents\\skills, for an
+--windows also copies the skills to %USERPROFILE%\.agents\skills, for an
 editor that reads the Windows profile rather than the WSL home. Windows cannot
 follow WSL links, so rerun it after each `git pull`.
 
@@ -41,20 +41,23 @@ MARKER = ".installed-from-team-skills"
 
 
 class InstallError(Exception):
-    pass
+    """Raised when a link or copy cannot be made, or the Windows profile cannot be found."""
 
 
 def skills() -> list[Path]:
+    """The repository's skill folders: each folder under skills/ that has a SKILL.md."""
     return sorted(p for p in SKILLS.iterdir() if (p / "SKILL.md").is_file())
 
 
 def points_into_repo(link: Path) -> bool:
+    """Whether the link targets this repository's skills/, whether or not the target still exists."""
     target = link.readlink()
     target = target if target.is_absolute() else link.parent / target
     return target.resolve(strict=False).is_relative_to(SKILLS)
 
 
 def link_all(dest: Path, *, force: bool, dry_run: bool) -> list[str]:
+    """Link every skill into `dest`, then prune links to skills that are gone; one report line per link."""
     report = []
     if not dry_run:
         dest.mkdir(parents=True, exist_ok=True)
@@ -81,6 +84,7 @@ def link_all(dest: Path, *, force: bool, dry_run: bool) -> list[str]:
 
 
 def prune(dest: Path, *, dry_run: bool) -> list[str]:
+    """Remove links into this repository whose skill no longer exists."""
     report = []
     for link in sorted(dest.iterdir()):
         if link.is_symlink() and points_into_repo(link) and not link.exists():
@@ -91,6 +95,7 @@ def prune(dest: Path, *, dry_run: bool) -> list[str]:
 
 
 def unlink_all(dest: Path, *, dry_run: bool) -> list[str]:
+    """Remove every link in `dest` that points into this repository, and nothing else."""
     report = []
     if not dest.is_dir():
         return report
@@ -102,10 +107,20 @@ def unlink_all(dest: Path, *, dry_run: bool) -> list[str]:
     return report
 
 
+def executable(name: str) -> str:
+    """The full path of `name` on PATH, so a process never starts from a partial path."""
+    found = shutil.which(name)
+    if found is None:
+        msg = f"{name} is not on PATH"
+        raise InstallError(msg)
+    return found
+
+
 def windows_skills_dir() -> Path:
+    """%USERPROFILE%/.agents/skills as a WSL path, asked of cmd.exe and translated by wslpath."""
     try:
-        profile = subprocess.run(["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True, text=True, check=True, cwd="/mnt/c").stdout.strip()
-        unix = subprocess.run(["wslpath", "-u", profile], capture_output=True, text=True, check=True).stdout.strip()
+        profile = subprocess.run([executable("cmd.exe"), "/c", "echo %USERPROFILE%"], capture_output=True, text=True, check=True, cwd="/mnt/c").stdout.strip()
+        unix = subprocess.run([executable("wslpath"), "-u", profile], capture_output=True, text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError) as err:
         msg = f"cannot find the Windows profile from WSL: {err}"
         raise InstallError(msg) from err
@@ -113,6 +128,7 @@ def windows_skills_dir() -> Path:
 
 
 def copy_all(dest: Path, *, dry_run: bool, remove: bool) -> list[str]:
+    """Copy every skill into `dest`, replacing only folders this script marked; with `remove`, only delete them."""
     report = []
     if not dry_run:
         dest.mkdir(parents=True, exist_ok=True)
@@ -140,6 +156,7 @@ def copy_all(dest: Path, *, dry_run: bool, remove: bool) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    """Install or uninstall, print the report, and exit 1 when anything was skipped."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--uninstall", action="store_true", help="remove what this installed")
     parser.add_argument("--windows", action="store_true", help="also copy to the Windows profile")

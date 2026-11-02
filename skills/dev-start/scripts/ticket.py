@@ -42,13 +42,18 @@ ITEM_FIELDS = "id,type,title,state,assignee,iteration,tags,parent,description,ac
 
 
 class TicketError(Exception):
+    """A read that cannot finish, with the exit status to leave with."""
+
     def __init__(self, message: str, code: int = 1) -> None:
+        """`code` is the exit status; 3 means agent-cli is missing."""
         super().__init__(message)
         self.code = code
 
 
 @dataclass(frozen=True)
 class Task:
+    """A task under the backlog item; `remaining_work` is None when nobody estimated it."""
+
     id: int
     title: str
     state: str
@@ -58,6 +63,8 @@ class Task:
 
 @dataclass(frozen=True)
 class Item:
+    """A work item as agent-cli prints it; `assignee` and `parent` are None when unset."""
+
     id: int
     type: str
     title: str
@@ -75,6 +82,8 @@ class Item:
 
 @dataclass(frozen=True)
 class Ticket:
+    """One work item, its backlog item, and that item's tasks; `pbi` is None for a task with no parent."""
+
     item: Item
     pbi: Item | None
     dev_tasks: list[Task]
@@ -82,6 +91,7 @@ class Ticket:
 
 
 def agent_cli(*args: str) -> object:
+    """The JSON an `agent-cli ado` call prints, with agent-cli from $AGENT_CLI or PATH."""
     binary = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
     if binary is None:
         msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
@@ -98,6 +108,7 @@ def agent_cli(*args: str) -> object:
 
 
 def as_dict(value: object, what: str) -> dict[str, object]:
+    """`value` as a JSON object with text keys; `what` names it in the error."""
     if not isinstance(value, dict):
         msg = f"{what}: expected a JSON object"
         raise TicketError(msg)
@@ -105,6 +116,7 @@ def as_dict(value: object, what: str) -> dict[str, object]:
 
 
 def as_list(value: object, what: str) -> list[object]:
+    """`value` as a JSON list, where a missing value is an empty list."""
     if value is None:
         return []
     if not isinstance(value, list):
@@ -114,6 +126,7 @@ def as_list(value: object, what: str) -> list[object]:
 
 
 def text(row: dict[str, object], key: str, what: str, *, required: bool = True) -> str:
+    """A text field; a missing one is "" when it is not `required`."""
     value = row.get(key)
     if value is None and not required:
         return ""
@@ -124,6 +137,7 @@ def text(row: dict[str, object], key: str, what: str, *, required: bool = True) 
 
 
 def number(row: dict[str, object], key: str, what: str) -> int:
+    """An integer field, where a JSON true or false does not count."""
     value = row.get(key)
     if not isinstance(value, int) or isinstance(value, bool):
         msg = f"{what}: {key} is missing or not a number"
@@ -132,14 +146,17 @@ def number(row: dict[str, object], key: str, what: str) -> int:
 
 
 def optional_number(row: dict[str, object], key: str, what: str) -> int | None:
+    """An integer field, or None when it is missing."""
     return None if row.get(key) is None else number(row, key, what)
 
 
 def optional_text(row: dict[str, object], key: str, what: str) -> str | None:
+    """A text field, or None when it is missing."""
     return text(row, key, what) if row.get(key) is not None else None
 
 
 def hours(row: dict[str, object], key: str, what: str) -> float | None:
+    """An hours field such as Remaining Work, or None when nobody estimated it."""
     value = row.get(key)
     if value is None:
         return None
@@ -150,6 +167,7 @@ def hours(row: dict[str, object], key: str, what: str) -> float | None:
 
 
 def refs(row: dict[str, object], key: str, label: str, what: str) -> list[str]:
+    """References as REPO:VALUE, VALUE being each entry's `label` key, such as a branch name or PR id."""
     out = []
     for entry in as_list(row.get(key), f"{what}: {key}"):
         ref = as_dict(entry, f"{what}: {key}")
@@ -158,6 +176,7 @@ def refs(row: dict[str, object], key: str, label: str, what: str) -> list[str]:
 
 
 def get_item(item_id: int) -> Item:
+    """One work item, read through agent-cli."""
     what = f"work item {item_id}"
     row = as_dict(agent_cli("workitem", "get", str(item_id), "--comments", "0", "--fields", ITEM_FIELDS), what)
     return Item(
@@ -178,6 +197,7 @@ def get_item(item_id: int) -> Item:
 
 
 def tasks_of(pbi_id: int) -> list[Task]:
+    """The tasks directly under a backlog item; other kinds of child are skipped."""
     what = f"the tree of {pbi_id}"
     tree = as_dict(agent_cli("tree", "get", str(pbi_id), "--depth", "1"), what)
     out = []
@@ -198,6 +218,7 @@ def tasks_of(pbi_id: int) -> list[Task]:
 
 
 def ticket(item_id: int) -> Ticket:
+    """A work item with its backlog item and that item's tasks; the QA task is the one titled QA."""
     item = get_item(item_id)
     if item.type.lower() not in TASK_TYPES:
         pbi: Item | None = item
@@ -211,6 +232,7 @@ def ticket(item_id: int) -> Ticket:
 
 
 def pull_request(pr_id: int) -> dict[str, object]:
+    """A pull request, with the ticket of every work item it links."""
     what = f"pull request {pr_id}"
     pr = as_dict(agent_cli("pr", "get", str(pr_id), "--comments", "0", "--fields", "id,repo,title,author,status,is_draft,source,target,description,work_items,url"), what)
     ids = []
@@ -224,6 +246,7 @@ def pull_request(pr_id: int) -> dict[str, object]:
 
 
 def main(argv: list[str]) -> int:
+    """Print the ticket for a work item or a pull request as JSON, and return the exit status."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("id", nargs="?", type=int, help="a work item id")

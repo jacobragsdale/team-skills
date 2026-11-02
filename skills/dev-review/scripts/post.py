@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Make a skill's Azure DevOps writes through agent-cli, brief and marked.
+r"""Make a skill's Azure DevOps writes through agent-cli, brief and marked.
 
 Every write a skill makes goes through this script. It appends the footer
 "Agent-written via /<skill>" to any text, rejects text over the length cap,
@@ -32,7 +32,7 @@ Examples:
   post.py --skill dev-start comment 1234 'Plan: add the retry, red tests first.'
   post.py --skill dev-start update 1234 --state 'In Progress' --assignee @me
   post.py --skill dev-sprint update 1234 --add-tag 'Ready for QA' --remaining 0
-  post.py --skill dev-finish pr-create --repo web --source 1234-retry \\
+  post.py --skill dev-finish pr-create --repo web --source 1234-retry \
       --title '1234 Retry on 429' --file pr.md --workitem 1234
   post.py --skill dev-sprint timelog 1234 --date 2026-10-21 --hours 5
 """
@@ -54,6 +54,7 @@ import shutil
 import subprocess
 import tempfile
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -79,6 +80,7 @@ class PostError(Exception):
     """A write that must not go out as asked."""
 
     def __init__(self, message: str, code: int = EXIT_USAGE) -> None:
+        """`code` is the exit status: 2 for a usage error, 3 for a setup error."""
         super().__init__(message)
         self.code = code
 
@@ -104,11 +106,13 @@ class Text:
 
 
 def read_stdin() -> str:
+    """Everything on stdin, for text given as `-`."""
     # typeshed types sys.stdin as `TextIO | Any`: it is None without a console, where reading fails anyway.
     return sys.stdin.read()  # ty: ignore[unsound-return-statement]
 
 
 def read_text(value: str | None, file: Path | None) -> str:
+    """The text from the positional argument or --file; `-` as either one reads stdin."""
     if file is not None and value is not None:
         msg = "give the text or --file, not both"
         raise PostError(msg)
@@ -129,6 +133,7 @@ def read_text(value: str | None, file: Path | None) -> str:
 
 
 def check_title(title: str) -> str:
+    """The title, stripped, refused when it is empty or over TITLE_CAP characters."""
     title = title.strip()
     if not title:
         msg = "the title is empty"
@@ -140,6 +145,7 @@ def check_title(title: str) -> str:
 
 
 def agent_cli() -> str:
+    """The agent-cli to run: $AGENT_CLI, or else the one on PATH."""
     found = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
     if found is None:
         msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
@@ -148,6 +154,7 @@ def agent_cli() -> str:
 
 
 def read(command: list[str]) -> dict[str, object]:
+    """The JSON object an `agent-cli ado` read prints; any failure exits 1."""
     done = subprocess.run([agent_cli(), "ado", *command], capture_output=True, text=True, check=False)
     if done.returncode != 0:
         msg = f"agent-cli ado {' '.join(command)} failed:\n{done.stderr.strip()}"
@@ -179,6 +186,7 @@ def state_category(item_id: str, state: str) -> str:
 
 
 def has_field(item_id: str, ref: str) -> bool:
+    """Whether the item's type carries the field `ref`, such as Original Estimate."""
     item_type = read(["workitem", "get", item_id, "--comments", "0", "--fields", "type"])["type"]
     info = read(["workitem-type", "get", str(item_type), "--fields", "fields"])
     fields = info.get("fields")
@@ -186,6 +194,7 @@ def has_field(item_id: str, ref: str) -> bool:
 
 
 def hours_value(value: float, flag: str) -> str:
+    """Hours formatted for a field, refused when negative; `flag` names the option in the error."""
     if value < 0:
         msg = f"{flag} cannot be negative"
         raise PostError(msg)
@@ -193,6 +202,7 @@ def hours_value(value: float, flag: str) -> str:
 
 
 def team_config() -> dict[str, object]:
+    """The skill's own assets/team.toml, or shared/team.toml when run from the source."""
     here = Path(__file__).resolve().parent.parent
     for name in TEAM_FILES:
         path = here / name
@@ -207,6 +217,7 @@ def team_config() -> dict[str, object]:
 
 
 def section(config: dict[str, object], name: str) -> dict[str, object]:
+    """One table of team.toml, or an empty one when it is missing or not a table."""
     value = config.get(name)
     return {str(k): v for k, v in value.items()} if isinstance(value, dict) else {}
 
@@ -229,6 +240,7 @@ class TimeLog:
 
     @classmethod
     def load(cls) -> TimeLog:
+        """The [timelog] table, defaulting to 8 h days in 1 h blocks."""
         raw = section(team_config(), "timelog")
         commands = {}
         for verb in ("list", "create", "update", "delete"):
@@ -246,6 +258,7 @@ class TimeLog:
         return cls(commands, names, float(day), float(block))
 
     def command(self, verb: str, **values: str) -> list[str]:
+        """The `verb` command's argv with each {key} placeholder filled; refused while team.toml leaves it empty."""
         template = self.commands[verb]
         if not template:
             msg = f"time logging is not set up: team.toml [timelog] has no `{verb}` command yet. docs/porting.md says how to fill it in."
@@ -284,6 +297,7 @@ class TimeLog:
         return out
 
     def check_hours(self, hours: float) -> str:
+        """`hours` formatted for the command, refused unless it is a whole number of blocks, at least one."""
         blocks = hours / self.block_hours
         if hours < self.block_hours or abs(blocks - round(blocks)) > HOURS_TOLERANCE:
             msg = f"{hours:g} h is not a whole number of {self.block_hours:g} h blocks, at least one"
@@ -291,12 +305,14 @@ class TimeLog:
         return f"{hours:g}"
 
     def check_day(self, total: float, day: date) -> None:
+        """Refuse a day whose `total` hours would go over the day's hours."""
         if total > self.day_hours + HOURS_TOLERANCE:
             msg = f"{day.isoformat()} would hold {total:g} h; a day holds {self.day_hours:g} h, no more"
             raise PostError(msg)
 
 
 def logged(entries: list[dict[str, object]]) -> float:
+    """The hours the entries hold, whether agent-cli prints them as numbers or numeric strings."""
     total = 0.0
     for entry in entries:
         hours = entry.get("hours")
@@ -312,6 +328,7 @@ def logged(entries: list[dict[str, object]]) -> float:
 
 
 def own_entry(entries: list[dict[str, object]], entry_id: str, day: date) -> dict[str, object]:
+    """The entry with this id among the person's own entries on `day`, so no one else's entry changes."""
     for entry in entries:
         if str(entry.get("id")) == entry_id:
             return entry
@@ -320,11 +337,13 @@ def own_entry(entries: list[dict[str, object]], entry_id: str, day: date) -> dic
 
 
 def run(command: list[str], *, dry_run: bool) -> int:
+    """Make the ADO write, or with `dry_run` have agent-cli show it; returns agent-cli's exit status."""
     full = [agent_cli(), "ado", *command, *(["--dry-run"] if dry_run else [])]
     return subprocess.run(full, check=False).returncode
 
 
 def run_timelog(argv: list[str], *, dry_run: bool) -> int:
+    """Make the time-log write, or with `dry_run` print its command and write nothing."""
     if dry_run:
         print(" ".join(["agent-cli", *argv]))
         return 0
@@ -347,6 +366,8 @@ class Options:
 
 @dataclass(frozen=True)
 class Comment:
+    """`comment`: add a comment to a work item."""
+
     id: str
     text: str | None
     file: Path | None
@@ -354,6 +375,8 @@ class Comment:
 
 @dataclass(frozen=True)
 class Update:
+    """`update`: set a work item's state, sprint, hours, or team tags, or assign it to @me."""
+
     id: str
     state: str | None
     assignee: str | None
@@ -371,6 +394,8 @@ DESCRIBE_FIELDS: dict[str, DescribeField] = {"description": "description", "acce
 
 @dataclass(frozen=True)
 class Describe:
+    """`describe`: replace a work item's description or acceptance criteria."""
+
     id: str
     field: DescribeField
     if_rev: int | None
@@ -379,6 +404,8 @@ class Describe:
 
 @dataclass(frozen=True)
 class Create:
+    """`create`: create a work item, optionally under a parent."""
+
     type: str
     title: str
     parent: int | None
@@ -391,6 +418,8 @@ class Create:
 
 @dataclass(frozen=True)
 class Branch:
+    """`branch`: create a work item's branch and link it."""
+
     id: str
     repo: str
     branch: str | None
@@ -398,6 +427,8 @@ class Branch:
 
 @dataclass(frozen=True)
 class PrCreate:
+    """`pr-create`: open a pull request linked to work items."""
+
     repo: str
     source: str
     target: str | None
@@ -409,12 +440,16 @@ class PrCreate:
 
 @dataclass(frozen=True)
 class PrDescribe:
+    """`pr-describe`: replace a pull request's description."""
+
     id: str
     file: Path
 
 
 @dataclass(frozen=True)
 class PrComment:
+    """`pr-comment`: start a comment thread on a pull request, optionally at a line."""
+
     id: str
     text: str | None
     file: Path | None
@@ -423,12 +458,16 @@ class PrComment:
 
 @dataclass(frozen=True)
 class PrLink:
+    """`pr-link`: link a work item to a pull request."""
+
     id: str
     workitem: int
 
 
 @dataclass(frozen=True)
 class TimelogCreate:
+    """`timelog`: log the person's own hours on a task for one day."""
+
     task: str
     date: date
     hours: float
@@ -436,6 +475,8 @@ class TimelogCreate:
 
 @dataclass(frozen=True)
 class TimelogUpdate:
+    """`timelog-update`: change the hours of one of the person's own entries."""
+
     entry: str
     date: date
     hours: float
@@ -443,6 +484,8 @@ class TimelogUpdate:
 
 @dataclass(frozen=True)
 class TimelogDelete:
+    """`timelog-delete`: delete one of the person's own entries."""
+
     entry: str
     date: date
 
@@ -450,49 +493,56 @@ class TimelogDelete:
 Timelog = TimelogCreate | TimelogUpdate | TimelogDelete
 AdoWrite = Comment | Update | Describe | Create | Branch | PrCreate | PrDescribe | PrComment | PrLink
 Verb = AdoWrite | Timelog
+AddParser = Callable[..., argparse.ArgumentParser]  # the subparsers' add_parser
 
 
 class Writer:
     """Turns one ADO write into one agent-cli call."""
 
     def __init__(self, options: Options, scratch: Path) -> None:
+        """`scratch` is a temporary folder for the text files agent-cli reads."""
         self.options = options
         self.scratch = scratch
 
     def text_file(self, name: str, raw: str, *, cap: int, kind: str, markdown: bool) -> str:
+        """Write the text, footed and capped, to a file in scratch and return its path; --long lifts `cap`."""
         text = Text.build(raw, skill=self.options.skill, cap=None if self.options.long else cap, kind=kind, markdown=markdown)
         path = self.scratch / name
         path.write_text(text.body, encoding="utf-8")
         return str(path)
 
     def command(self, verb: AdoWrite) -> list[str]:
+        """The `agent-cli ado` arguments for one write, with any text written to a file first."""
+        command: list[str]
         match verb:
             case Comment():
                 path = self.text_file("comment.md", read_text(verb.text, verb.file), cap=COMMENT_CAP, kind="comment", markdown=False)
-                return ["workitem", "comment", verb.id, "--text-file", path]
+                command = ["workitem", "comment", verb.id, "--text-file", path]
             case Update():
-                return self.update(verb)
+                command = self.update(verb)
             case Describe():
                 path = self.text_file(f"{verb.field}.md", read_text(None, verb.file), cap=DESCRIPTION_CAP, kind=verb.field.replace("-", " "), markdown=False)
-                return ["workitem", "update", verb.id, f"--{verb.field}-file", path, *if_rev(verb.if_rev)]
+                command = ["workitem", "update", verb.id, f"--{verb.field}-file", path, *if_rev(verb.if_rev)]
             case Create():
-                return self.create(verb)
+                command = self.create(verb)
             case Branch():
-                return ["workitem", "link", verb.id, "--repo", verb.repo, *(["--branch", verb.branch] if verb.branch is not None else [])]
+                command = ["workitem", "link", verb.id, "--repo", verb.repo, *(["--branch", verb.branch] if verb.branch is not None else [])]
             case PrCreate():
-                return self.pr_create(verb)
+                command = self.pr_create(verb)
             case PrDescribe():
                 path = self.text_file("pr.md", read_text(None, verb.file), cap=DESCRIPTION_CAP, kind="pull request description", markdown=True)
-                return ["pr", "update", verb.id, "--description-file", path]
+                command = ["pr", "update", verb.id, "--description-file", path]
             case PrComment():
                 path = self.text_file("comment.md", read_text(verb.text, verb.file), cap=COMMENT_CAP, kind="comment", markdown=True)
-                return ["pr", "comment", verb.id, "--text-file", path, *(["--at", verb.at] if verb.at is not None else [])]
+                command = ["pr", "comment", verb.id, "--text-file", path, *(["--at", verb.at] if verb.at is not None else [])]
             case PrLink():
-                return ["pr", "link", verb.id, "--workitem", str(verb.workitem)]
+                command = ["pr", "link", verb.id, "--workitem", str(verb.workitem)]
             case _:
                 assert_never(verb)
+        return command
 
     def update(self, verb: Update) -> list[str]:
+        """The `workitem update` arguments, refusing closing states, assignees other than @me, and negative hours."""
         changes = (verb.state, verb.assignee, verb.iteration, verb.remaining, verb.estimate)
         if all(c is None for c in changes) and not verb.add_tag and not verb.remove_tag:
             msg = "give --state, --assignee, --iteration, --remaining, --estimate, or a tag"
@@ -525,6 +575,7 @@ class Writer:
         return [*command, *if_rev(verb.if_rev)]
 
     def create(self, verb: Create) -> list[str]:
+        """The `workitem create` arguments, with the description and criteria written to files."""
         command: list[str] = ["workitem", "create", "--type", verb.type, "--title", check_title(verb.title)]
         if verb.parent is not None:
             command += ["--parent", str(verb.parent)]
@@ -543,6 +594,7 @@ class Writer:
         return command
 
     def pr_create(self, verb: PrCreate) -> list[str]:
+        """The `pr create` arguments, with the description written to a file."""
         path = self.text_file("pr.md", read_text(None, verb.file), cap=DESCRIPTION_CAP, kind="pull request description", markdown=True)
         command = ["pr", "create", "--repo", verb.repo, "--source", verb.source]
         command += ["--title", check_title(verb.title), "--description-file", path]
@@ -556,6 +608,7 @@ class Writer:
 
 
 def if_rev(rev: int | None) -> list[str]:
+    """The --if-rev guard for `rev`, or nothing when none was given."""
     return ["--if-rev", str(rev)] if rev is not None else []
 
 
@@ -610,6 +663,7 @@ def optional(ns: argparse.Namespace, name: str, kind: type[T]) -> T | None:
 
 
 def required(ns: argparse.Namespace, name: str, kind: type[T]) -> T:
+    """Like `optional`, for an argument argparse always sets."""
     value = optional(ns, name, kind)
     if value is None:
         msg = f"argument {name} is missing"
@@ -618,6 +672,7 @@ def required(ns: argparse.Namespace, name: str, kind: type[T]) -> T:
 
 
 def repeated(ns: argparse.Namespace, name: str, kind: type[T]) -> tuple[T, ...]:
+    """An argument given with action="append", as a tuple of `kind`."""
     value: object = getattr(ns, name)
     if not isinstance(value, list):
         msg = f"argument {name} parsed as {type(value).__name__}, not a list"
@@ -633,12 +688,19 @@ def repeated(ns: argparse.Namespace, name: str, kind: type[T]) -> tuple[T, ...]:
 
 def verb_from(ns: argparse.Namespace) -> Verb:
     """The typed verb for a parsed command line."""
+    name = required(ns, "verb", str)
+    return timelog_from(ns, name) if name.startswith("timelog") else write_from(ns, name)
+
+
+def write_from(ns: argparse.Namespace, name: str) -> AdoWrite:
+    """The typed ADO write for a parsed command line."""
     s, p = str, Path
-    match required(ns, "verb", s):
+    verb: AdoWrite
+    match name:
         case "comment":
-            return Comment(required(ns, "id", s), optional(ns, "text", s), optional(ns, "file", p))
+            verb = Comment(required(ns, "id", s), optional(ns, "text", s), optional(ns, "file", p))
         case "update":
-            return Update(
+            verb = Update(
                 required(ns, "id", s),
                 optional(ns, "state", s),
                 optional(ns, "assignee", s),
@@ -651,9 +713,9 @@ def verb_from(ns: argparse.Namespace) -> Verb:
             )
         case "describe":
             field = DESCRIBE_FIELDS[required(ns, "field", s)]
-            return Describe(required(ns, "id", s), field, optional(ns, "if_rev", int), required(ns, "file", p))
+            verb = Describe(required(ns, "id", s), field, optional(ns, "if_rev", int), required(ns, "file", p))
         case "create":
-            return Create(
+            verb = Create(
                 required(ns, "type", s),
                 required(ns, "title", s),
                 optional(ns, "parent", int),
@@ -664,9 +726,9 @@ def verb_from(ns: argparse.Namespace) -> Verb:
                 repeated(ns, "field", s),
             )
         case "branch":
-            return Branch(required(ns, "id", s), required(ns, "repo", s), optional(ns, "branch", s))
+            verb = Branch(required(ns, "id", s), required(ns, "repo", s), optional(ns, "branch", s))
         case "pr-create":
-            return PrCreate(
+            verb = PrCreate(
                 required(ns, "repo", s),
                 required(ns, "source", s),
                 optional(ns, "target", s),
@@ -676,39 +738,49 @@ def verb_from(ns: argparse.Namespace) -> Verb:
                 required(ns, "draft", bool),
             )
         case "pr-describe":
-            return PrDescribe(required(ns, "id", s), required(ns, "file", p))
+            verb = PrDescribe(required(ns, "id", s), required(ns, "file", p))
         case "pr-comment":
-            return PrComment(required(ns, "id", s), optional(ns, "text", s), optional(ns, "file", p), optional(ns, "at", s))
+            verb = PrComment(required(ns, "id", s), optional(ns, "text", s), optional(ns, "file", p), optional(ns, "at", s))
         case "pr-link":
-            return PrLink(required(ns, "id", s), required(ns, "workitem", int))
-        case "timelog":
-            return TimelogCreate(required(ns, "task", s), required(ns, "date", date), required(ns, "hours", float))
-        case "timelog-update":
-            return TimelogUpdate(required(ns, "entry", s), required(ns, "date", date), required(ns, "hours", float))
-        case "timelog-delete":
-            return TimelogDelete(required(ns, "entry", s), required(ns, "date", date))
+            verb = PrLink(required(ns, "id", s), required(ns, "workitem", int))
         case other:
             msg = f"no verb {other!r}"
             raise TypeError(msg)
 
+    return verb
+
+
+def timelog_from(ns: argparse.Namespace, name: str) -> Timelog:
+    """The typed time-log write for a parsed command line."""
+    s = str
+    verb: Timelog
+    match name:
+        case "timelog":
+            verb = TimelogCreate(required(ns, "task", s), required(ns, "date", date), required(ns, "hours", float))
+        case "timelog-update":
+            verb = TimelogUpdate(required(ns, "entry", s), required(ns, "date", date), required(ns, "hours", float))
+        case "timelog-delete":
+            verb = TimelogDelete(required(ns, "entry", s), required(ns, "date", date))
+        case other:
+            msg = f"no verb {other!r}"
+            raise TypeError(msg)
+
+    return verb
+
 
 def text_args(parser: argparse.ArgumentParser) -> None:
+    """Add the text argument and --file, for the verbs that take text either way."""
     parser.add_argument("text", nargs="?", help="the text, or - to read stdin")
     parser.add_argument("--file", type=Path, help="read the text from this Markdown file")
 
 
-def parse(argv: list[str]) -> tuple[Options, Verb]:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--skill", required=True, help="the skill writing, e.g. dev-finish")
-    parser.add_argument("--dry-run", action="store_true", help="show the request only")
-    parser.add_argument("--long", action="store_true", help="lift the cap; only on request")
-    verbs = parser.add_subparsers(dest="verb", required=True, metavar="VERB")
-
-    p = verbs.add_parser("comment", help="comment on a work item (cap 600)")
+def add_workitem_verbs(add_parser: AddParser) -> None:
+    """The verbs that write to a work item."""
+    p = add_parser("comment", help="comment on a work item (cap 600)")
     p.add_argument("id")
     text_args(p)
 
-    p = verbs.add_parser("update", help="set a work item's state, sprint, hours, or team tags, or assign it to @me")
+    p = add_parser("update", help="set a work item's state, sprint, hours, or team tags, or assign it to @me")
     p.add_argument("id")
     p.add_argument("--state")
     p.add_argument("--assignee", help="only @me")
@@ -719,13 +791,13 @@ def parse(argv: list[str]) -> tuple[Options, Verb]:
     p.add_argument("--remove-tag", action="append", default=[], help="a team tag from team.toml")
     p.add_argument("--if-rev", type=int, help="refuse unless the item is still at this rev")
 
-    p = verbs.add_parser("describe", help="replace a work item's description or criteria")
+    p = add_parser("describe", help="replace a work item's description or criteria")
     p.add_argument("id")
     p.add_argument("--field", choices=("description", "acceptance-criteria"), default="description")
     p.add_argument("--if-rev", type=int, help="refuse unless the item is still at this rev")
     p.add_argument("--file", type=Path, required=True, help="the Markdown to write")
 
-    p = verbs.add_parser("create", help="create a work item, optionally under a parent")
+    p = add_parser("create", help="create a work item, optionally under a parent")
     p.add_argument("--type", required=True, help="Task, Bug, 'Product Backlog Item' ...")
     p.add_argument("--title", required=True)
     p.add_argument("--parent", type=int)
@@ -735,12 +807,15 @@ def parse(argv: list[str]) -> tuple[Options, Verb]:
     p.add_argument("--criteria-file", type=Path, help="the acceptance criteria, as Markdown")
     p.add_argument("--field", action="append", default=[], help="NAME=VALUE, repeatable")
 
-    p = verbs.add_parser("branch", help="create a work item's branch and link it")
+    p = add_parser("branch", help="create a work item's branch and link it")
     p.add_argument("id")
     p.add_argument("--repo", required=True)
     p.add_argument("--branch", help="default: {id}-{title-slug}")
 
-    p = verbs.add_parser("pr-create", help="open a pull request linked to work items")
+
+def add_pr_verbs(add_parser: AddParser) -> None:
+    """The verbs that write to a pull request."""
+    p = add_parser("pr-create", help="open a pull request linked to work items")
     p.add_argument("--repo", required=True)
     p.add_argument("--source", required=True)
     p.add_argument("--target")
@@ -749,32 +824,47 @@ def parse(argv: list[str]) -> tuple[Options, Verb]:
     p.add_argument("--workitem", type=int, action="append", default=[])
     p.add_argument("--draft", action="store_true")
 
-    p = verbs.add_parser("pr-describe", help="replace a pull request's description")
+    p = add_parser("pr-describe", help="replace a pull request's description")
     p.add_argument("id")
     p.add_argument("--file", type=Path, required=True, help="the description, as Markdown")
 
-    p = verbs.add_parser("pr-comment", help="start a comment thread on a pull request")
+    p = add_parser("pr-comment", help="start a comment thread on a pull request")
     p.add_argument("id")
     text_args(p)
     p.add_argument("--at", help="REPO[@REF]:PATH[:LINE[-LINE]], as agent-cli diff get prints it")
 
-    p = verbs.add_parser("pr-link", help="link a work item to a pull request")
+    p = add_parser("pr-link", help="link a work item to a pull request")
     p.add_argument("id")
     p.add_argument("--workitem", type=int, required=True)
 
-    p = verbs.add_parser("timelog", help="log your own hours on a task for one day")
+
+def add_timelog_verbs(add_parser: AddParser) -> None:
+    """The verbs that write the person's own time entries."""
+    p = add_parser("timelog", help="log your own hours on a task for one day")
     p.add_argument("task")
     p.add_argument("--date", type=date.fromisoformat, required=True, help="YYYY-MM-DD")
     p.add_argument("--hours", type=float, required=True)
 
-    p = verbs.add_parser("timelog-update", help="change the hours of one of your own entries")
+    p = add_parser("timelog-update", help="change the hours of one of your own entries")
     p.add_argument("entry")
     p.add_argument("--date", type=date.fromisoformat, required=True, help="the entry's day")
     p.add_argument("--hours", type=float, required=True)
 
-    p = verbs.add_parser("timelog-delete", help="delete one of your own entries")
+    p = add_parser("timelog-delete", help="delete one of your own entries")
     p.add_argument("entry")
     p.add_argument("--date", type=date.fromisoformat, required=True, help="the entry's day")
+
+
+def parse(argv: list[str]) -> tuple[Options, Verb]:
+    """The options and the typed verb for a command line; argparse exits on a usage error."""
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--skill", required=True, help="the skill writing, e.g. dev-finish")
+    parser.add_argument("--dry-run", action="store_true", help="show the request only")
+    parser.add_argument("--long", action="store_true", help="lift the cap; only on request")
+    verbs = parser.add_subparsers(dest="verb", required=True, metavar="VERB")
+    add_workitem_verbs(verbs.add_parser)
+    add_pr_verbs(verbs.add_parser)
+    add_timelog_verbs(verbs.add_parser)
 
     ns = parser.parse_args(argv)
     options = Options(required(ns, "skill", str), required(ns, "dry_run", bool), required(ns, "long", bool))
@@ -784,6 +874,7 @@ def parse(argv: list[str]) -> tuple[Options, Verb]:
 
 
 def main(argv: list[str]) -> int:
+    """Make the one write the command line asks for, and return the exit status."""
     options, verb = parse(argv)
     with tempfile.TemporaryDirectory(prefix="post-") as scratch:
         try:

@@ -8,36 +8,30 @@ unsafe-fixes = false
 [lint]
 select = ["ALL"]  # Every stable rule; preview rules stay off. Upgrades are deliberate because the version is pinned.
 ignore = [
-    "S",  # Do not run flake8-bandit; its findings are noise outside audited code.
-    "D",  # Docstring style is not correctness.
-    "CPY",  # No copyright headers.
-    "TD",  # TODO comment format is not correctness.
-    "FIX",  # TODO comments are allowed.
-    "COM812",  # Conflicts with the formatter.
-    "ISC001",  # Conflicts with the formatter.
-    "E501",  # The formatter owns line length.
-    "ASYNC109",  # Allow deliberate timeout parameters in async APIs.
-    "TRY003",  # EM already governs exception messages.
-    "FBT003",  # Flags positional booleans passed to APIs we do not own.
-    "TC001",  # Runtime annotation readers (Pydantic, FastAPI) need real imports.
-    "TC002",  # Runtime annotation readers (Pydantic, FastAPI) need real imports.
-    "TC003",  # Runtime annotation readers (Pydantic, FastAPI) need real imports.
-    "PLR0911",  # C901 already limits complexity.
-    "PLR0912",  # C901 already limits complexity.
-    "PLR0915",  # C901 already limits complexity.
+    # Each entry is a rule that cannot be fixed, only turned off. Fix everything else.
+    "COM812",  # Conflicts with the formatter; Ruff's docs say to disable it alongside ruff format.
+    "ISC001",  # Conflicts with the formatter; Ruff's docs say to disable it alongside ruff format.
+    "S603",  # Flags every subprocess call; there is no fix, only review. Pass argv lists, never shell=True (S602).
+    "TC001",  # Moving imports under TYPE_CHECKING breaks code that reads annotations at runtime (Pydantic, FastAPI).
+    "TC002",  # Moving imports under TYPE_CHECKING breaks code that reads annotations at runtime (Pydantic, FastAPI).
+    "TC003",  # Moving imports under TYPE_CHECKING breaks code that reads annotations at runtime (Pydantic, FastAPI).
+    "CPY001",  # A copyright header is a legal decision per repository, not a lint fix.
 ]
 
 [lint.per-file-ignores]
-# Tests may reach into private members, sit outside a package, and compare against literal values.
-"**/tests/**" = ["SLF001", "INP001", "PLR2004"]
-"**/test_*.py" = ["SLF001", "INP001", "PLR2004"]
-"**/conftest.py" = ["SLF001", "INP001", "PLR2004"]
+# pytest's assert is its API, and a test compares against literal expected values.
+"**/tests/**" = ["S101", "PLR2004"]
+"**/test_*.py" = ["S101", "PLR2004"]
+"**/conftest.py" = ["S101", "PLR2004"]
 
 [lint.isort]
 split-on-trailing-comma = false  # Do not preserve comma-forced import line breaks.
 
 [lint.mccabe]
 max-complexity = 15
+
+[lint.pydocstyle]
+convention = "google"  # Turns off the D rules that conflict with Google style.
 
 [format]
 docstring-code-format = true

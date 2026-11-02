@@ -39,6 +39,7 @@ import argparse
 import json
 import re
 import shlex
+import shutil
 import subprocess
 import tomllib
 from dataclasses import dataclass
@@ -53,16 +54,19 @@ Scalar = str | int | float | bool
 
 
 class ContextError(Exception):
-    pass
+    """Raised when docs/app-context.md is missing, or its Environments block does not parse."""
 
 
 @dataclass(frozen=True)
 class Domain:
+    """One agent-cli domain's section in an environment: its flags, and the name lists it holds."""
+
     name: str
     flags: dict[str, Scalar]
     names: dict[str, list[str]]
 
     def flag_line(self) -> str:
+        """The flags as agent-cli options, shell-quoted, with booleans in lowercase."""
         parts = []
         for key, value in self.flags.items():
             shown = str(value).lower() if isinstance(value, bool) else str(value)
@@ -72,13 +76,25 @@ class Domain:
 
 @dataclass(frozen=True)
 class Environment:
+    """One environment table: its plain facts, and a Domain per agent-cli domain section."""
+
     name: str
     facts: dict[str, Scalar | list[str]]
     domains: list[Domain]
 
 
+def executable(name: str) -> str:
+    """The full path of `name` on PATH, so a process never starts from a partial path."""
+    found = shutil.which(name)
+    if found is None:
+        msg = f"{name} is not on PATH"
+        raise ContextError(msg)
+    return found
+
+
 def repo_file() -> Path:
-    done = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False)
+    """docs/app-context.md at the top of the current git repository."""
+    done = subprocess.run([executable("git"), "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False)
     if done.returncode != 0:
         msg = "not inside a git repository; pass --file"
         raise ContextError(msg)
@@ -86,6 +102,7 @@ def repo_file() -> Path:
 
 
 def toml_block(markdown: str, path: Path) -> str:
+    """The first ```toml block under `## Environments`, without its fences."""
     lines = markdown.splitlines()
     start = next((i for i, line in enumerate(lines) if HEADING_RE.match(line)), None)
     if start is None:
@@ -110,6 +127,7 @@ def toml_block(markdown: str, path: Path) -> str:
 
 
 def scalar_or_names(value: object, where: str) -> Scalar | list[str]:
+    """Check that a TOML value is a scalar or a list of strings; `where` names it in the error."""
     if isinstance(value, str | int | float | bool):
         return value
     if isinstance(value, list) and all(isinstance(v, str) for v in value):
@@ -119,6 +137,7 @@ def scalar_or_names(value: object, where: str) -> Scalar | list[str]:
 
 
 def parse(source: str, path: Path) -> list[Environment]:
+    """The environments in the TOML, in file order; a nested table becomes a Domain, anything else a fact."""
     try:
         data = tomllib.loads(source)
     except tomllib.TOMLDecodeError as err:
@@ -160,6 +179,7 @@ def parse(source: str, path: Path) -> list[Environment]:
 
 
 def load(path: Path) -> list[Environment]:
+    """The environments that the file's Environments block declares."""
     try:
         markdown = path.read_text(encoding="utf-8")
     except FileNotFoundError as err:
@@ -169,6 +189,7 @@ def load(path: Path) -> list[Environment]:
 
 
 def render(env: Environment, only: str | None) -> str:
+    """The environment as text; with `only`, that domain's section without the facts."""
     out = [f"# {env.name}"]
     if only is None:
         for key, value in env.facts.items():
@@ -184,6 +205,7 @@ def render(env: Environment, only: str | None) -> str:
 
 
 def main(argv: list[str]) -> int:
+    """Print one environment, list them, or check the block; exit 4 for an unknown environment or domain."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--env", help="the environment to print, such as qa")
