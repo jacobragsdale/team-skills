@@ -21,16 +21,19 @@ Examples:
 
 from __future__ import annotations
 
+# Before any other import, so an older python3 gets this message, not an ImportError.
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit("ticket.py needs Python 3.11 or later; run it with `uv run`.")
+
+
 import argparse
 import json
 import os
 import shutil
 import subprocess
-import sys
 from dataclasses import asdict, dataclass
-
-if sys.version_info < (3, 11):
-    sys.exit("ticket.py needs Python 3.11 or later; run it with `uv run`.")
 
 # Task-level types sit under a backlog item; anything else is the backlog item.
 TASK_TYPES = frozenset({"task"})

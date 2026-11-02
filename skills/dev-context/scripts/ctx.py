@@ -28,19 +28,21 @@ Examples:
 
 from __future__ import annotations
 
+# Before any other import, so an older python3 gets this message, not an ImportError.
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit("ctx.py needs Python 3.11 or later; run it with `uv run`.")
+
+
 import argparse
 import json
 import re
 import shlex
 import subprocess
-import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-
-if sys.version_info < (3, 11):
-    sys.exit("ctx.py needs Python 3.11 or later; run it with `uv run`.")
-
-import tomllib
 
 HEADING_RE = re.compile(r"^##\s+Environments\s*$")
 FENCE_OPEN_RE = re.compile(r"^```toml\s*$")

@@ -31,21 +31,23 @@ Examples:
 
 from __future__ import annotations
 
+# Before any other import, so an older python3 gets this message, not an ImportError.
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit("adopt_lint.py needs Python 3.11 or later; run it with `uv run`.")
+
+
 import argparse
 import json
 import os
 import re
 import shutil
 import subprocess
-import sys
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-
-if sys.version_info < (3, 11):
-    sys.exit("adopt_lint.py needs Python 3.11 or later; run it with `uv run`.")
-
-import tomllib
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates" / "lint"
 MARK = "Team lint baseline from team-skills templates/lint"

@@ -23,14 +23,17 @@ Examples:
 
 from __future__ import annotations
 
-import argparse
-import shutil
-import subprocess
+# Before any other import, so an older python3 gets this message, not an ImportError.
 import sys
-from pathlib import Path
 
 if sys.version_info < (3, 11):
     sys.exit("install.py needs Python 3.11 or later; run it with `uv run`.")
+
+
+import argparse
+import shutil
+import subprocess
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"

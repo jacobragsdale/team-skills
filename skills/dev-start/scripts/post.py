@@ -39,23 +39,25 @@ Examples:
 
 from __future__ import annotations
 
+# Before any other import, so an older python3 gets this message, not an ImportError.
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit("post.py needs Python 3.11 or later; run it with `uv run`.")
+
+
 import argparse
 import json
 import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal, TypeVar, assert_never
-
-if sys.version_info < (3, 11):
-    sys.exit("post.py needs Python 3.11 or later; run it with `uv run`.")
-
-import tomllib
 
 COMMENT_CAP = 600
 DESCRIPTION_CAP = 2000

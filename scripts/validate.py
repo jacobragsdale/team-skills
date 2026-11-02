@@ -31,20 +31,22 @@ Prints one line per problem and exits 1 when there is any.
 
 from __future__ import annotations
 
+# Before any other import, so an older python3 gets this message, not an ImportError.
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit("validate.py needs Python 3.11 or later; run it with `uv run`.")
+
+
 import argparse
 import ast
 import os
 import re
 import shutil
 import subprocess
-import sys
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
-
-if sys.version_info < (3, 11):
-    sys.exit("validate.py needs Python 3.11 or later; run it with `uv run`.")
-
-import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILL_NAME_RE = re.compile(r"^dev-[a-z0-9]+(-[a-z0-9]+)*$")
@@ -186,6 +188,7 @@ def check_script(path: Path, problems: list[str]) -> None:
     except SyntaxError as err:
         problems.append(f"{rel(path)}: does not parse: {err}")
         return
+    check_version_guard(tree, path, problems)
     allowed = sys.stdlib_module_names | {"__future__"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -195,6 +198,17 @@ def check_script(path: Path, problems: list[str]) -> None:
         else:
             continue
         problems.extend(f"{rel(path)}:{node.lineno}: imports {name}, not the stdlib" for name in names if name.split(".")[0] not in allowed)
+
+
+def check_version_guard(tree: ast.Module, path: Path, problems: list[str]) -> None:
+    """`import sys` and the 3.11 guard come before every other import, so an older python3 reaches the guard."""
+    body = [n for n in tree.body if not (isinstance(n, ast.ImportFrom) and n.module == "__future__")]
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]  # the docstring
+    first_import = next((i for i, n in enumerate(body) if isinstance(n, ast.Import | ast.ImportFrom) and not (isinstance(n, ast.Import) and [a.name for a in n.names] == ["sys"])), len(body))
+    guarded = any(isinstance(n, ast.If) and "version_info" in ast.unparse(n.test) for n in body[:first_import])
+    if not guarded:
+        problems.append(f"{rel(path)}: the `sys.version_info < (3, 11)` guard must come before every import but `import sys`")
 
 
 def banned_words() -> list[str]:

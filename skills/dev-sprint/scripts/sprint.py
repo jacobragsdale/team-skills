@@ -36,6 +36,13 @@ Examples:
 
 from __future__ import annotations
 
+# Before any other import, so an older python3 gets this message, not an ImportError.
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit("sprint.py needs Python 3.11 or later; run it with `uv run`.")
+
+
 import argparse
 import calendar
 import json
@@ -43,7 +50,7 @@ import os
 import re
 import shutil
 import subprocess
-import sys
+import tomllib
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -51,11 +58,6 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import TypeVar
-
-if sys.version_info < (3, 11):
-    sys.exit("sprint.py needs Python 3.11 or later; run it with `uv run`.")
-
-import tomllib
 
 SILENT_DAYS = 3  # as metrics.py counts silent items
 STALE_DAYS = 7  # as metrics.py counts stale items
