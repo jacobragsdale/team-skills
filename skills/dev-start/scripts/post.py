@@ -106,7 +106,6 @@ class Text:
 
 
 def read_stdin() -> str:
-    """Everything on stdin, for text given as `-`."""
     # typeshed types sys.stdin as `TextIO | Any`: it is None without a console, where reading fails anyway.
     return sys.stdin.read()  # ty: ignore[unsound-return-statement]
 
@@ -305,7 +304,6 @@ class TimeLog:
         return f"{hours:g}"
 
     def check_day(self, total: float, day: date) -> None:
-        """Refuse a day whose `total` hours would go over the day's hours."""
         if total > self.day_hours + HOURS_TOLERANCE:
             msg = f"{day.isoformat()} would hold {total:g} h; a day holds {self.day_hours:g} h, no more"
             raise PostError(msg)
@@ -366,8 +364,6 @@ class Options:
 
 @dataclass(frozen=True)
 class Comment:
-    """`comment`: add a comment to a work item."""
-
     id: str
     text: str | None
     file: Path | None
@@ -375,8 +371,6 @@ class Comment:
 
 @dataclass(frozen=True)
 class Update:
-    """`update`: set a work item's state, sprint, hours, or team tags, or assign it to @me."""
-
     id: str
     state: str | None
     assignee: str | None
@@ -394,8 +388,6 @@ DESCRIBE_FIELDS: dict[str, DescribeField] = {"description": "description", "acce
 
 @dataclass(frozen=True)
 class Describe:
-    """`describe`: replace a work item's description or acceptance criteria."""
-
     id: str
     field: DescribeField
     if_rev: int | None
@@ -404,8 +396,6 @@ class Describe:
 
 @dataclass(frozen=True)
 class Create:
-    """`create`: create a work item, optionally under a parent."""
-
     type: str
     title: str
     parent: int | None
@@ -418,8 +408,6 @@ class Create:
 
 @dataclass(frozen=True)
 class Branch:
-    """`branch`: create a work item's branch and link it."""
-
     id: str
     repo: str
     branch: str | None
@@ -427,8 +415,6 @@ class Branch:
 
 @dataclass(frozen=True)
 class PrCreate:
-    """`pr-create`: open a pull request linked to work items."""
-
     repo: str
     source: str
     target: str | None
@@ -440,16 +426,12 @@ class PrCreate:
 
 @dataclass(frozen=True)
 class PrDescribe:
-    """`pr-describe`: replace a pull request's description."""
-
     id: str
     file: Path
 
 
 @dataclass(frozen=True)
 class PrComment:
-    """`pr-comment`: start a comment thread on a pull request, optionally at a line."""
-
     id: str
     text: str | None
     file: Path | None
@@ -458,16 +440,12 @@ class PrComment:
 
 @dataclass(frozen=True)
 class PrLink:
-    """`pr-link`: link a work item to a pull request."""
-
     id: str
     workitem: int
 
 
 @dataclass(frozen=True)
 class TimelogCreate:
-    """`timelog`: log the person's own hours on a task for one day."""
-
     task: str
     date: date
     hours: float
@@ -475,8 +453,6 @@ class TimelogCreate:
 
 @dataclass(frozen=True)
 class TimelogUpdate:
-    """`timelog-update`: change the hours of one of the person's own entries."""
-
     entry: str
     date: date
     hours: float
@@ -484,8 +460,6 @@ class TimelogUpdate:
 
 @dataclass(frozen=True)
 class TimelogDelete:
-    """`timelog-delete`: delete one of the person's own entries."""
-
     entry: str
     date: date
 
@@ -608,7 +582,6 @@ class Writer:
 
 
 def if_rev(rev: int | None) -> list[str]:
-    """The --if-rev guard for `rev`, or nothing when none was given."""
     return ["--if-rev", str(rev)] if rev is not None else []
 
 
@@ -693,7 +666,6 @@ def verb_from(ns: argparse.Namespace) -> Verb:
 
 
 def write_from(ns: argparse.Namespace, name: str) -> AdoWrite:
-    """The typed ADO write for a parsed command line."""
     s, p = str, Path
     verb: AdoWrite
     match name:
@@ -751,7 +723,6 @@ def write_from(ns: argparse.Namespace, name: str) -> AdoWrite:
 
 
 def timelog_from(ns: argparse.Namespace, name: str) -> Timelog:
-    """The typed time-log write for a parsed command line."""
     s = str
     verb: Timelog
     match name:
@@ -775,7 +746,6 @@ def text_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_workitem_verbs(add_parser: AddParser) -> None:
-    """The verbs that write to a work item."""
     p = add_parser("comment", help="comment on a work item (cap 600)")
     p.add_argument("id")
     text_args(p)
@@ -814,7 +784,6 @@ def add_workitem_verbs(add_parser: AddParser) -> None:
 
 
 def add_pr_verbs(add_parser: AddParser) -> None:
-    """The verbs that write to a pull request."""
     p = add_parser("pr-create", help="open a pull request linked to work items")
     p.add_argument("--repo", required=True)
     p.add_argument("--source", required=True)
@@ -839,7 +808,6 @@ def add_pr_verbs(add_parser: AddParser) -> None:
 
 
 def add_timelog_verbs(add_parser: AddParser) -> None:
-    """The verbs that write the person's own time entries."""
     p = add_parser("timelog", help="log your own hours on a task for one day")
     p.add_argument("task")
     p.add_argument("--date", type=date.fromisoformat, required=True, help="YYYY-MM-DD")

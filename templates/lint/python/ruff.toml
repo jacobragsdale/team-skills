@@ -16,6 +16,7 @@ ignore = [
     "TC002",  # Moving imports under TYPE_CHECKING breaks code that reads annotations at runtime (Pydantic, FastAPI).
     "TC003",  # Moving imports under TYPE_CHECKING breaks code that reads annotations at runtime (Pydantic, FastAPI).
     "CPY001",  # A copyright header is a legal decision per repository, not a lint fix.
+    "D",  # Agents read this code. A required docstring gets written to satisfy the rule; write one only where it says what code and types cannot.
 ]
 
 [lint.per-file-ignores]
@@ -29,9 +30,6 @@ split-on-trailing-comma = false  # Do not preserve comma-forced import line brea
 
 [lint.mccabe]
 max-complexity = 15
-
-[lint.pydocstyle]
-convention = "google"  # Turns off the D rules that conflict with Google style.
 
 [format]
 docstring-code-format = true

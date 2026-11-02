@@ -127,7 +127,6 @@ def toml_block(markdown: str, path: Path) -> str:
 
 
 def scalar_or_names(value: object, where: str) -> Scalar | list[str]:
-    """Check that a TOML value is a scalar or a list of strings; `where` names it in the error."""
     if isinstance(value, str | int | float | bool):
         return value
     if isinstance(value, list) and all(isinstance(v, str) for v in value):
@@ -179,7 +178,6 @@ def parse(source: str, path: Path) -> list[Environment]:
 
 
 def load(path: Path) -> list[Environment]:
-    """The environments that the file's Environments block declares."""
     try:
         markdown = path.read_text(encoding="utf-8")
     except FileNotFoundError as err:

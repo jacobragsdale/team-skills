@@ -46,7 +46,6 @@ class Copy:
 
 
 def strings(value: object, where: str) -> list[str]:
-    """Check that a sync.toml value is a list of strings; `where` names it in the error."""
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         msg = f"{where} must be a list of texts"
         raise SyncError(msg)

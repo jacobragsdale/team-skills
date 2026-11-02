@@ -108,7 +108,6 @@ def agent_cli(*args: str) -> object:
 
 
 def as_dict(value: object, what: str) -> dict[str, object]:
-    """`value` as a JSON object with text keys; `what` names it in the error."""
     if not isinstance(value, dict):
         msg = f"{what}: expected a JSON object"
         raise TicketError(msg)
@@ -146,12 +145,10 @@ def number(row: dict[str, object], key: str, what: str) -> int:
 
 
 def optional_number(row: dict[str, object], key: str, what: str) -> int | None:
-    """An integer field, or None when it is missing."""
     return None if row.get(key) is None else number(row, key, what)
 
 
 def optional_text(row: dict[str, object], key: str, what: str) -> str | None:
-    """A text field, or None when it is missing."""
     return text(row, key, what) if row.get(key) is not None else None
 
 
@@ -176,7 +173,6 @@ def refs(row: dict[str, object], key: str, label: str, what: str) -> list[str]:
 
 
 def get_item(item_id: int) -> Item:
-    """One work item, read through agent-cli."""
     what = f"work item {item_id}"
     row = as_dict(agent_cli("workitem", "get", str(item_id), "--comments", "0", "--fields", ITEM_FIELDS), what)
     return Item(

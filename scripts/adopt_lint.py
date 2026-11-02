@@ -68,8 +68,6 @@ class AdoptError(Exception):
 
 @dataclass
 class Report:
-    """What the run changed, skipped, and left to follow up, plus the check command to record."""
-
     done: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     follow_up: list[str] = field(default_factory=list)
@@ -78,8 +76,6 @@ class Report:
 
 @dataclass(frozen=True)
 class Repo:
-    """The repository being adopted, and the choices that apply to every ecosystem in it."""
-
     path: Path
     format_allowed: bool
     plan: bool
@@ -107,7 +103,6 @@ class Repo:
 
 
 def count(n: int, noun: str) -> str:
-    """`n` and the noun, plural unless `n` is 1."""
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
@@ -587,7 +582,6 @@ def main(argv: list[str]) -> int:
 
 
 def print_report(report: Report) -> None:
-    """Print the Done, Skipped, and Follow up lists, then the check command."""
     for title, lines in (("Done", report.done), ("Skipped", report.skipped), ("Follow up", report.follow_up)):
         if lines:
             print(f"{title}:")

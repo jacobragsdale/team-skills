@@ -63,7 +63,6 @@ class MetricsError(Exception):
 
 
 def agent_cli(*args: str) -> object:
-    """Run `agent-cli ado` with the arguments and return its parsed JSON output."""
     binary = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
     if binary is None:
         msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
@@ -80,7 +79,6 @@ def agent_cli(*args: str) -> object:
 
 
 def rows(value: object, what: str) -> list[dict[str, object]]:
-    """Check that agent-cli printed a list of objects; `what` names the data in the error."""
     msg = f"{what}: expected a JSON list of objects"
     if not isinstance(value, list):
         raise MetricsError(msg)
@@ -93,7 +91,6 @@ def rows(value: object, what: str) -> list[dict[str, object]]:
 
 
 def obj(value: object, what: str) -> dict[str, object]:
-    """Check that agent-cli printed an object; `what` names the data in the error."""
     if not isinstance(value, dict):
         msg = f"{what}: expected a JSON object"
         raise MetricsError(msg)

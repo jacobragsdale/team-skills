@@ -103,7 +103,6 @@ def binary() -> str:
 
 
 def call(argv: list[str]) -> object:
-    """Run agent-cli with `argv` and parse what it prints as JSON."""
     done = subprocess.run([binary(), *argv], capture_output=True, text=True, check=False)
     if done.returncode != 0:
         msg = f"agent-cli {' '.join(argv)} failed:\n{done.stderr.strip()}"
@@ -116,12 +115,10 @@ def call(argv: list[str]) -> object:
 
 
 def ado(*args: str) -> object:
-    """Run an `agent-cli ado` read and parse its JSON."""
     return call(["ado", *args])
 
 
 def rows(value: object, what: str) -> list[dict[str, object]]:
-    """`value` as a list of JSON objects with string keys; anything else is an error naming `what`."""
     msg = f"{what}: expected a JSON list of objects"
     if not isinstance(value, list):
         raise SprintError(msg)
@@ -134,7 +131,6 @@ def rows(value: object, what: str) -> list[dict[str, object]]:
 
 
 def obj(value: object, what: str) -> dict[str, object]:
-    """`value` as a JSON object with string keys; anything else is an error naming `what`."""
     if not isinstance(value, dict):
         msg = f"{what}: expected a JSON object"
         raise SprintError(msg)
@@ -593,7 +589,6 @@ class States:
     """Each work item type's states and their categories, read once per type."""
 
     def __init__(self) -> None:
-        """Start with no types read."""
         self.by_type: dict[str, dict[str, str]] = {}
 
     def load(self, types: Iterable[str]) -> None:
@@ -825,22 +820,16 @@ Cell = str | Styled
 
 @dataclass(frozen=True)
 class Heading:
-    """A section heading in a view."""
-
     text: str
 
 
 @dataclass(frozen=True)
 class Para:
-    """A paragraph in a view."""
-
     text: Cell
 
 
 @dataclass(frozen=True)
 class Bullets:
-    """A bulleted list in a view."""
-
     lines: Sequence[Cell]
 
 
@@ -860,12 +849,10 @@ STAGE_COLORS = {"todo": "dim", "doing": "blue", "review": "yellow", "approved": 
 
 
 def plain(cell: Cell) -> str:
-    """The cell's text without its color."""
     return cell.text if isinstance(cell, Styled) else cell
 
 
 def paint(cell: Cell, *, color: bool) -> str:
-    """The cell's text, with its ANSI color when `color` is on."""
     if not isinstance(cell, Styled) or not color:
         return plain(cell)
     return f"\033[{COLORS[cell.color]}m{cell.text}\033[0m"
@@ -1122,7 +1109,6 @@ def needs_you(board: Board, mine: list[Item], owed: list[dict[str, object]], my_
 
 
 def next_pick(board: Board, picks: list[Item], note: str | None) -> list[Block]:
-    """The "Next to pick up" section of your view."""
     blocks: list[Block] = [Heading("Next to pick up")]
     if picks:
         pick = picks[0]
@@ -1407,8 +1393,6 @@ def view_team(team: Team, which: str, now: datetime, today: date) -> tuple[list[
 
 @dataclass(frozen=True)
 class Proposal:
-    """A proposed time entry: hours on a task for one day."""
-
     day: date
     task: int
     hours: float
