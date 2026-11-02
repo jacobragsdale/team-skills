@@ -80,7 +80,7 @@ class Ticket:
 
 def agent_cli(*args: str) -> object:
     binary = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
-    if not binary:
+    if binary is None:
         msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
         raise TicketError(msg, 3)
     done = subprocess.run([binary, "ado", *args], capture_output=True, text=True, check=False)
@@ -107,7 +107,7 @@ def as_list(value: object, what: str) -> list[object]:
     if not isinstance(value, list):
         msg = f"{what}: expected a JSON list"
         raise TicketError(msg)
-    return value
+    return list[object](value)
 
 
 def text(row: dict[str, object], key: str, what: str, *, required: bool = True) -> str:

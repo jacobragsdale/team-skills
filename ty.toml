@@ -1,0 +1,22 @@
+# This repository's own Python: the team ty baseline, plus the paths to check.
+# Run it as `ty check --config-file ty.toml`: ty checks a PEP 723 script as its
+# own project, so without the flag these rules do not reach the scripts.
+# ty has no `extend`, so validate.py fails when the tables below drift from
+# templates/lint/python/ty.toml. skills/*/scripts are synced copies of
+# shared/scripts, checked through their source.
+[src]
+exclude = ["skills/*/scripts"]
+
+[environment]
+python-version = "3.11"  # The scripts' requires-python floor.
+
+[rules]
+all = "error"  # Every rule is an error, including those ty leaves off by default. Opt out one rule at a time, with a reason.
+
+[analysis]
+respect-type-ignore-comments = false  # Require a specific `# ty: ignore[rule]` suppression.
+strict-generic-narrowing = true  # isinstance on a generic narrows to its top materialization, e.g. list[object].
+strict-equality-semantics = true  # Do not narrow from ==, in, or match value patterns; a subclass can compare equal.
+
+[terminal]
+error-on-warning = true

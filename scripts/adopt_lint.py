@@ -133,9 +133,9 @@ def replace_block(text: str, block: str) -> str:
 
 
 def tool(name: str) -> list[str]:
-    if shutil.which(name):
+    if shutil.which(name) is not None:
         return [name]
-    if shutil.which("uvx"):
+    if shutil.which("uvx") is not None:
         return ["uvx", name]
     msg = f"{name} is not installed, and neither is uv"
     raise AdoptError(msg)
@@ -223,14 +223,14 @@ def strip_jsonc(text: str) -> str:
 
 def jsonc(text: str, where: str) -> dict[str, object]:
     try:
-        value = json.loads(strip_jsonc(text))
+        value: object = json.loads(strip_jsonc(text))
     except json.JSONDecodeError as err:
         msg = f"{where} does not parse: {err}"
         raise AdoptError(msg) from err
     if not isinstance(value, dict):
         msg = f"{where} is not a JSON object"
         raise AdoptError(msg)
-    return value
+    return {str(k): v for k, v in value.items()}
 
 
 def set_compiler_options(text: str, options: dict[str, bool]) -> str:
@@ -265,7 +265,7 @@ def typescript(repo: Repo, report: Report) -> None:
     for key in ("dependencies", "devDependencies"):
         section = package.get(key)
         if isinstance(section, dict):
-            deps.update(section)
+            deps.update({str(k): v for k, v in section.items()})
     kind = "angular" if "@angular/core" in deps else "typescript"
     wanted = (*ESLINT_PACKAGES, "angular-eslint") if kind == "angular" else ESLINT_PACKAGES
     configs = [*repo.path.glob("eslint.config.*"), *repo.path.glob(".eslintrc*")]

@@ -190,7 +190,7 @@ def check_script(path: Path, problems: list[str]) -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module is not None:
             names = [node.module]
         else:
             continue
@@ -198,7 +198,7 @@ def check_script(path: Path, problems: list[str]) -> None:
 
 
 def banned_words() -> list[str]:
-    configured = os.environ.get("TEAM_SKILLS_BANNED_WORDS")
+    configured = os.environ.get("TEAM_SKILLS_BANNED_WORDS", "")  # set but empty means unset
     path = Path(configured) if configured else Path.home() / ".config" / "team-skills" / "banned-words.txt"
     if not path.is_file():
         return []
@@ -235,16 +235,35 @@ def check_repository(problems: list[str]) -> None:
 
 
 RUFF_PIN = "ruff@0.17.3"  # Matches required-version in templates/lint/python/ruff.toml.
+TY_PIN = "ty@0.0.95"  # Matches the ty pin in the python-standards pre-commit config.
+
+
+def runner(name: str, pin: str) -> list[str] | None:
+    """The tool on PATH, or else the pinned release through uvx."""
+    if shutil.which(name) is not None:
+        return [name]
+    if shutil.which("uvx") is not None:
+        return ["uvx", pin]
+    return None
 
 
 def check_lint(problems: list[str]) -> None:
-    """This repository's own Python passes the team's Ruff baseline (ruff.toml extends it)."""
-    ruff = ["ruff"] if shutil.which("ruff") else ["uvx", RUFF_PIN] if shutil.which("uvx") else None
-    if ruff is None:
-        problems.append("ruff is not installed, and neither is uv")
-        return
-    for args, what in ((["check", "--quiet", "."], "ruff check"), (["format", "--check", "--quiet", "."], "ruff format --check")):
-        done = subprocess.run([*ruff, *args], cwd=ROOT, capture_output=True, text=True, check=False)
+    """This repository's own Python passes the team's Ruff and ty baselines."""
+    template = tomllib.loads((ROOT / "templates" / "lint" / "python" / "ty.toml").read_text(encoding="utf-8"))
+    own = tomllib.loads((ROOT / "ty.toml").read_text(encoding="utf-8"))
+    problems.extend(f"ty.toml: [{table}] differs from templates/lint/python/ty.toml" for table in template if own.get(table) != template[table])
+    runs = [
+        ("ruff", RUFF_PIN, ["check", "--quiet", "."], "ruff check"),
+        ("ruff", RUFF_PIN, ["format", "--check", "--quiet", "."], "ruff format --check"),
+        # ty checks a PEP 723 script as its own project; --config-file makes ty.toml reach them.
+        ("ty", TY_PIN, ["check", "--config-file", "ty.toml", "--output-format", "concise"], "ty check --config-file ty.toml"),
+    ]
+    for name, pin, args, what in runs:
+        tool = runner(name, pin)
+        if tool is None:
+            problems.append(f"{name} is not installed, and neither is uv")
+            continue
+        done = subprocess.run([*tool, *args], cwd=ROOT, capture_output=True, text=True, check=False)
         if done.returncode != 0:
             problems.append(f"{what} fails; run it to see why:\n{(done.stdout + done.stderr).strip()}")
 

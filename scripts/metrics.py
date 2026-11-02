@@ -62,7 +62,7 @@ class MetricsError(Exception):
 
 def agent_cli(*args: str) -> object:
     binary = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
-    if not binary:
+    if binary is None:
         msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
         raise MetricsError(msg)
     done = subprocess.run([binary, "ado", *args], capture_output=True, text=True, check=False)
@@ -77,10 +77,15 @@ def agent_cli(*args: str) -> object:
 
 
 def rows(value: object, what: str) -> list[dict[str, object]]:
-    if not isinstance(value, list) or not all(isinstance(r, dict) for r in value):
-        msg = f"{what}: expected a JSON list of objects"
+    msg = f"{what}: expected a JSON list of objects"
+    if not isinstance(value, list):
         raise MetricsError(msg)
-    return [{str(k): v for k, v in r.items()} for r in value]
+    out: list[dict[str, object]] = []
+    for r in value:
+        if not isinstance(r, dict):
+            raise MetricsError(msg)
+        out.append({str(k): v for k, v in r.items()})
+    return out
 
 
 def obj(value: object, what: str) -> dict[str, object]:
@@ -145,7 +150,7 @@ class TypeStates:
     @classmethod
     def of(cls, item_type: str, active: list[str] | None, done: list[str] | None) -> TypeStates:
         """The given state names, or else the type's states in each category."""
-        if active and done:
+        if active is not None and done is not None:  # argparse's append gives None or a non-empty list
             return cls(active, done)
         what = f"work item type {item_type}"
         info = obj(agent_cli("workitem-type", "get", item_type, "--fields", "states"), what)
@@ -171,11 +176,11 @@ class Scope:
 
     def list_args(self, item_type: str) -> list[str]:
         out = ["--type", item_type]
-        if self.area:
+        if self.area is not None:
             out += ["--area", self.area]
-        if self.iteration:
+        if self.iteration is not None:
             out += ["--iteration", self.iteration]
-        if self.team:
+        if self.team is not None:
             out += ["--team", self.team]
         return out
 
@@ -237,7 +242,7 @@ def review_turnaround(scope: Scope, since: datetime, until: datetime) -> Reviews
     for repo in scope.repos or [None]:
         args = ["pr", "list", "--status", "all", "--since", rfc3339(since), "--until", rfc3339(until)]
         args += ["--limit", LIST_LIMIT, "--fields", "id,author,created,is_draft"]
-        if repo:
+        if repo is not None:
             args += ["--repo", repo]
         for pr in rows(agent_cli(*args), "pull requests"):
             if pr.get("is_draft") is True:
@@ -246,7 +251,7 @@ def review_turnaround(scope: Scope, since: datetime, until: datetime) -> Reviews
             opened[str(number(pr, "id", "pull request"))] = (author if isinstance(author, str) else "", stamp(pr.get("created"), "pull request created"))
     first_vote: dict[str, datetime] = {}
     people_args = ["person", "list", "--limit", LIST_LIMIT, "--fields", "id,name"]
-    if scope.team:
+    if scope.team is not None:
         people_args += ["--team", scope.team]
     # activity list takes the sign-in address (id); pull requests name the author.
     people = {str(p["id"]): str(p.get("name", "")) for p in rows(agent_cli(*people_args), "people") if isinstance(p.get("id"), str)}
@@ -342,7 +347,7 @@ def render(result: dict[str, object], *, terminal: bool, color: bool) -> str:
         return left + mid.join("─" * (w + 2) for w in widths) + right
 
     def cells(row: tuple[str, str, str], code: str | None) -> str:
-        parts = [" " + (paint(c, code) if code else c) + " " * (w - len(c) + 1) for c, w in zip(row, widths, strict=True)]
+        parts = [" " + (paint(c, code) if code is not None else c) + " " * (w - len(c) + 1) for c, w in zip(row, widths, strict=True)]
         return "│" + "│".join(parts) + "│"
 
     out = [paint(title, "36"), line("┌", "┬", "┐"), cells(table[0], "1"), line("├", "┼", "┤")]
@@ -397,7 +402,8 @@ def main(argv: list[str]) -> int:
         print(json.dumps(result, indent=1))
     else:
         terminal = sys.stdout.isatty()
-        print(render(result, terminal=terminal, color=terminal and not os.environ.get("NO_COLOR")))
+        no_color = os.environ.get("NO_COLOR", "") != ""  # no-color.org: set and non-empty turns color off
+        print(render(result, terminal=terminal, color=terminal and not no_color))
     return 0
 
 

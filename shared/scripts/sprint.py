@@ -90,7 +90,7 @@ class SprintError(Exception):
 
 def binary() -> str:
     found = os.environ.get("AGENT_CLI") or shutil.which("agent-cli")
-    if not found:
+    if found is None:
         msg = "agent-cli is not on PATH; install it, or set AGENT_CLI"
         raise SprintError(msg, EXIT_SETUP)
     return found
@@ -113,10 +113,15 @@ def ado(*args: str) -> object:
 
 
 def rows(value: object, what: str) -> list[dict[str, object]]:
-    if not isinstance(value, list) or not all(isinstance(r, dict) for r in value):
-        msg = f"{what}: expected a JSON list of objects"
+    msg = f"{what}: expected a JSON list of objects"
+    if not isinstance(value, list):
         raise SprintError(msg)
-    return [{str(k): v for k, v in r.items()} for r in value]
+    out: list[dict[str, object]] = []
+    for r in value:
+        if not isinstance(r, dict):
+            raise SprintError(msg)
+        out.append({str(k): v for k, v in r.items()})
+    return out
 
 
 def obj(value: object, what: str) -> dict[str, object]:
@@ -176,7 +181,8 @@ def day_start(day: date) -> datetime:
 
 
 def weekdays(first: date, last: date) -> list[date]:
-    out, day = [], first
+    out: list[date] = []
+    day = first
     while day <= last:
         if day.weekday() < calendar.SATURDAY:
             out.append(day)
@@ -253,10 +259,10 @@ class Team:
     timelog: TimeLog
 
     def team_args(self) -> list[str]:
-        return ["--team", self.name] if self.name else []
+        return ["--team", self.name] if self.name is not None else []
 
     def area_args(self) -> list[str]:
-        return ["--area", self.area] if self.area else []
+        return ["--area", self.area] if self.area is not None else []
 
     def find(self, query: str) -> Person | None:
         wanted = query.strip().lower()
@@ -271,7 +277,7 @@ class Team:
         return partial[0] if partial else None
 
     def display(self, address: str | None) -> str:
-        if not address:
+        if address is None:
             return "unassigned"
         for person in self.people:
             if person.address.lower() == address.lower():
@@ -339,7 +345,7 @@ def load_team() -> Team:
 
 def whoami() -> str:
     """Your sign-in address, which ADO prints as an assignee."""
-    configured = os.environ.get("TEAM_SKILLS_ME")
+    configured = os.environ.get("TEAM_SKILLS_ME", "")  # set but empty means unset
     if configured:
         return configured
     mine = rows(ado("workitem", "list", "--assignee", "@me", "--limit", "1", "--fields", "assignee"), "your work items")
@@ -348,7 +354,7 @@ def whoami() -> str:
     for check in rows(call(["doctor"]), "agent-cli doctor"):
         found = re.search(r"signed in as (\S+)", text(check, "detail"))
         if check.get("domain") == "ado" and found:
-            return found.group(1)
+            return found.group(1)  # ty: ignore[unsound-return-statement] -- typeshed returns `str | Any`; (\S+) always takes part in the match
     msg = "cannot tell who you are; set TEAM_SKILLS_ME to your sign-in address"
     raise SprintError(msg, EXIT_SETUP)
 
@@ -585,7 +591,7 @@ def read_history(item: Item, sprint_path: str, now: datetime) -> None:
                     item.tag_since.pop(tag.lower(), None)
     item.remaining = real(latest.get("Remaining Work"))
     item.estimate = real(latest.get("Original Estimate"))
-    item.points = next((real(latest[f]) for f in POINT_FIELDS if real(latest.get(f))), None)
+    item.points = next((real(latest[f]) for f in POINT_FIELDS if real(latest.get(f)) is not None), None)  # 0 points is an estimate
 
 
 def read_detail(item: Item) -> None:
@@ -657,7 +663,7 @@ class Board:
                 out.append("silent")
             if item.since and self.now - item.since > timedelta(days=STALE_DAYS):
                 out.append("stale")
-        if not item.assignee and stage != "done":
+        if item.assignee is None and stage != "done":
             out.append("unassigned")
         start = day_start(self.sprint.start)
         if item.entered and item.entered > start + PLANNING_GRACE:
@@ -710,8 +716,8 @@ def gather(team: Team, sprint: Sprint, now: datetime, focus: set[str] | None) ->
 
     parallel(detail, wanted)
     if team.tags.on_pbi:
-        parents = {i.parent for i in wanted if i.parent in items and not items[i.parent].detailed}
-        parallel(lambda p: read_history(items[p], sprint.path, now), sorted(p for p in parents if p))
+        parents = {i.parent for i in wanted if i.parent is not None and i.parent in items and not items[i.parent].detailed}
+        parallel(lambda p: read_history(items[p], sprint.path, now), sorted(parents))
     pr_ids = sorted({p for i in wanted for p in i.prs})
     prs = {pr.id: pr for pr in parallel(load_pr, pr_ids)}
     return Board(team, sprint, states, now, items, prs)
@@ -720,7 +726,7 @@ def gather(team: Team, sprint: Sprint, now: datetime, focus: set[str] | None) ->
 def wants_detail(item: Item, focus: set[str] | None) -> bool:
     if focus is None:
         return True
-    if item.assignee:
+    if item.assignee is not None:
         return item.assignee.lower() in focus
     return item.is_task and not item.done
 
@@ -847,7 +853,8 @@ def emit(blocks: list[Block], data: object, fmt: str) -> None:
     if fmt == "json":
         print(json.dumps(data, indent=1, default=str))
     elif fmt == "term":
-        print(terminal(blocks, color=not os.environ.get("NO_COLOR")), end="")
+        no_color = os.environ.get("NO_COLOR", "") != ""  # no-color.org: set and non-empty turns color off
+        print(terminal(blocks, color=not no_color), end="")
     else:
         print(markdown(blocks), end="")
 
@@ -972,17 +979,19 @@ def ranks(team: Team) -> dict[int, int]:
 
 def next_up(board: Board, limit: int) -> tuple[list[Item], str | None]:
     """The unassigned tasks not started, by their PBI's place on the backlog."""
-    candidates = [i for i in board.units() if i.is_task and not i.is_qa and not i.assignee and board.stage(i)[0] == "todo"]
+    candidates = [i for i in board.units() if i.is_task and not i.is_qa and i.assignee is None and board.stage(i)[0] == "todo"]
     note = None
+    rank: dict[int, int]
     try:
         rank = ranks(board.team)
     except SprintError:
-        rank, note = {}, "the backlog's order could not be read, so this is by priority"
+        rank = {}
+        note = "the backlog's order could not be read, so this is by priority"
     far = sys.maxsize
 
     def key(item: Item) -> tuple[int, int, int]:
-        place = rank.get(item.parent or item.id, far)
-        return place, item.priority or 9, item.id
+        place = rank.get(item.parent if item.parent is not None else item.id, far)
+        return place, item.priority if item.priority is not None else 9, item.id
 
     return sorted(candidates, key=key)[:limit], note
 
@@ -1041,7 +1050,7 @@ def view_me(team: Team, which: str, now: datetime, today: date) -> tuple[list[Bl
         blocks.append(Para(f"#{pick.id} {pick.title}{under} (/dev-start {pick.id} claims it)"))
     else:
         blocks.append(Para("No unassigned task is waiting in this sprint."))
-    if pick_note:
+    if pick_note is not None:
         blocks.append(Para(Styled(pick_note, "dim")))
 
     blocks += [Heading(f"Since {last_day:%A}"), Bullets(activity or ["No activity in ADO."])]
@@ -1049,7 +1058,7 @@ def view_me(team: Team, which: str, now: datetime, today: date) -> tuple[list[Bl
     fixes = my_fixes(board, mine, my_prs, outside, gaps)
     if fixes:
         blocks.append(Heading("Fixes /dev-sprint can make"))
-        blocks.append(Table(["#", "Fix", "Why", "Write"], [[str(n), f.what, f.why, f"`{f.write}`" if f.write else "drafted by the agent"] for n, f in enumerate(fixes, 1)], 2))
+        blocks.append(Table(["#", "Fix", "Why", "Write"], [[str(n), f.what, f.why, f"`{f.write}`" if f.write is not None else "drafted by the agent"] for n, f in enumerate(fixes, 1)], 2))
     data = {
         "me": me,
         "sprint": sprint,
@@ -1099,13 +1108,13 @@ def my_fixes(board: Board, mine: list[Item], my_prs: list[PullRequest], outside:
                 )
             )
         if "not tagged Ready for QA" in flags:
-            target = item.parent if tags.on_pbi and item.parent else item.id
+            target = item.parent if tags.on_pbi and item.parent is not None else item.id
             fixes.append(Fix("ready-for-qa", target, f"Tag #{target} {tags.ready_for_qa}", "its pull request has merged", f'update {target} --add-tag "{tags.ready_for_qa}"'))
         if stage == "todo" and (item.prs or item.branches) and not item.done:
             state = board.states.first(item.type, "InProgress")
-            if state:
+            if state is not None:
                 fixes.append(Fix("start", item.id, f"Move #{item.id} to {state}", "it has a branch or pull request", f'update {item.id} --state "{state}"'))
-        if stage in ("review", "approved") and item.remaining:
+        if stage in ("review", "approved") and item.remaining is not None and item.remaining != 0:
             fixes.append(Fix("remaining", item.id, f"Remaining Work on #{item.id} to 0", f"{hours(item.remaining)} left though its PR is open", f"update {item.id} --remaining 0"))
         if "no estimate" in flags and stage == "doing":
             fixes.append(Fix("remaining", item.id, f"Remaining Work on #{item.id}", "in progress with no estimate; ask how many hours are left", f"update {item.id} --remaining <hours>"))
@@ -1174,7 +1183,7 @@ def needs_attention(team: Team, board: Board, units: list[Item], now: datetime) 
     """The team view's attention lines, the flagged items by flag, and the PRs waiting for review."""
     attention: dict[str, list[str]] = defaultdict(list)
     for item in units:
-        owner = f" ({team.display(item.assignee)})" if item.assignee else ""
+        owner = f" ({team.display(item.assignee)})" if item.assignee is not None else ""
         label = f"#{item.id} {item.title}{owner}"
         for flag in board.flags(item):
             if flag != "likely to miss":
@@ -1209,7 +1218,7 @@ def view_team(team: Team, which: str, now: datetime, today: date) -> tuple[list[
     units = sorted(board.units(), key=stage_order(board))
     addresses = {p.address.lower(): p for p in team.people}
     for item in units:
-        if item.assignee and item.assignee.lower() not in addresses:
+        if item.assignee is not None and item.assignee.lower() not in addresses:
             addresses[item.assignee.lower()] = Person(item.assignee, item.assignee)
     people = sorted(addresses.values(), key=lambda p: p.name.lower())
     owed = dict(zip([p.address for p in people], parallel(lambda p: len(reviews_owed(p.address, p.address)), people), strict=True))
@@ -1311,7 +1320,7 @@ def plan_day(log: TimeLog, gap: float, *, working: list[int], weight: Counter[in
     if gap == 0:
         return {}, Styled("full", "green")
     if day_off:
-        if log.time_off_task:
+        if log.time_off_task is not None:
             return {log.time_off_task: int(gap // block)}, "team day off"
         return {}, Styled("team day off; team.toml names no time-off ticket", "yellow")
     if not working:
@@ -1388,7 +1397,7 @@ def view_time(team: Team, now: datetime, today: date, first: date | None) -> tup
         blocks.append(Para(Styled(holiday_note, "yellow")))
     named = {p.task for p in proposals}
     if named:
-        off = {log.time_off_task: "time off"} if log.time_off_task else {}
+        off = {log.time_off_task: "time off"} if log.time_off_task is not None else {}
         blocks += [Heading("Tasks"), Bullets([f"#{t} {titles.get(t) or off.get(t, '')}" for t in sorted(named)])]
     data = {"since": first, "day_hours": log.day_hours, "block_hours": block, "logged": {d.isoformat(): h for d, h in logged.items()}, "entries": entries, "proposal": proposals}
     return blocks, data
@@ -1410,7 +1419,7 @@ def view_next(team: Team, which: str, now: datetime, limit: int) -> tuple[list[B
         blocks.append(Table(["Task", "Title", "Under"], table_rows, 1))
     else:
         blocks.append(Para("No unassigned task is waiting in this sprint."))
-    if note:
+    if note is not None:
         blocks.append(Para(Styled(note, "dim")))
     return blocks, {"sprint": sprint, "next": [item_data(board, i) for i in picks]}
 
