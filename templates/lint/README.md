@@ -13,7 +13,7 @@ Prerequisites:
 - agent-cli is signed in, so the script can count the repository's open pull
   requests.
 - The tools for each ecosystem the repository uses:
-  - Python: ruff and ty on the `PATH`, or else uv, which runs them through
+  - Python: ruff 0.17.3 or later and ty on the `PATH`, or else uv, which runs them through
     `uvx`. The project's environment must be synced (for example with
     `uv sync`), so that ty can resolve imports.
   - TypeScript or Angular: ESLint 9.24 or later and its packages, installed
@@ -100,9 +100,9 @@ because they leave new code unchecked too:
 - Rust: the lints set to `"allow"` in the team lint block of `Cargo.toml`.
 - TypeScript: the compiler options the report left off.
 
-The rest suppress single lines, so they can go one rule at a time: `# noqa`
-and `# ty: ignore` comments in Python, and `eslint-suppressions.json` in
-TypeScript.
+The rest suppress single lines, so they can go one rule at a time:
+`# ruff: ignore` and `# ty: ignore` comments in Python, and
+`eslint-suppressions.json` in TypeScript.
 
 ## What the baseline contains
 

@@ -449,7 +449,7 @@ analyzers with `.editorconfig` for C#, and clippy for Rust.
 1. Apply the template config.
 2. Autofix the safe fixes only: `ruff check --fix` without unsafe fixes,
    `eslint --fix`, `dotnet format`, `cargo clippy --fix`.
-3. Bulk-suppress everything that remains (`ruff check --add-noqa`, ESLint's
+3. Bulk-suppress everything that remains (`ruff check --add-ignore`, ESLint's
    suppressions file, .NET rule severities, a clippy allow-list), so `check`
    is green on the first day.
 4. From then on, only new code must be clean. Suppressions are burned down in

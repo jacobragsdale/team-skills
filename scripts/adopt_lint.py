@@ -216,13 +216,13 @@ def python(repo: Repo, report: Report) -> None:
     if repo.format_allowed:
         repo.run(*ruff, "format", ".", ok=True)
         report.done.append("python: formatted with ruff format")
-    repo.run(*ruff, "check", "--add-noqa", ".")
+    repo.run(*ruff, "check", "--add-ignore", ".")
     repo.run(*ty, "check", "--add-ignore")
     repo.run(*ruff, "check", ".", ok=True)
     repo.run(*ty, "check", ok=True)
     report.done.append(
         f"python: {configs.replace('apply ', 'applied ').replace('keep ', 'kept ')}; safe fixes made;"
-        " the rest has noqa or ty: ignore"
+        " the rest has ruff: ignore or ty: ignore"
     )
     report.checks.append("ruff check . && ty check")
 

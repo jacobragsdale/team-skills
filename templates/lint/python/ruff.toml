@@ -1,5 +1,6 @@
 # Team lint baseline from team-skills templates/lint. adopt_lint.py copies it.
 line-length = 200
+required-version = ">=0.17.3"  # The rule set and adopt_lint.py's `ruff: ignore` comments assume this release.
 force-exclude = true
 show-fixes = true
 unsafe-fixes = false
